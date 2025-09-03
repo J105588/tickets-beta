@@ -160,6 +160,15 @@ function enqueue(operation) {
   // operation: { type, args, pre?: { seatId -> {columnC,columnD,columnE,status} or arbitrary } }
   q.push({ ...operation, enqueuedAt: Date.now() });
   writeQueue(q);
+  
+  // オフライン操作をコンソールに出力
+  const timestamp = new Date().toLocaleString('ja-JP');
+  console.log(`[オフライン操作] ${timestamp}`, {
+    type: operation.type,
+    args: operation.args,
+    precondition: operation.pre,
+    queueLength: q.length
+  });
 }
 
 function isOffline() {
@@ -269,6 +278,8 @@ function installOfflineOverrides() {
   // 同じタブで二重に上書きしない
   if (GasAPI.__offlineOverridden) return;
 
+  console.log('[オフライン設定] GasAPIをオフライン操作モードに切り替えます');
+
   const original = {
     getSeatData: GasAPI.getSeatData,
     getSeatDataMinimal: GasAPI.getSeatDataMinimal,
@@ -372,6 +383,8 @@ async function flushQueue() {
   const queue = readQueue();
   if (!queue.length) return;
 
+  console.log(`[同期開始] ${queue.length}件のオフライン操作を同期します...`);
+  
   // 同期中モーダルを表示
   showSyncModal();
 
@@ -379,27 +392,35 @@ async function flushQueue() {
   for (const item of queue) {
     try {
       const { type, args } = item;
+      console.log(`[同期処理] ${type} を実行中...`, args);
       logSync(`Flush op start: ${type}`);
       if (type === 'reserveSeats') {
         const res = await GasAPI.reserveSeats(...args);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'reserve failed');
+        console.log(`[同期成功] ${type} 完了`);
       } else if (type === 'checkInMultipleSeats') {
         const res = await GasAPI.checkInMultipleSeats(...args);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'checkin failed');
+        console.log(`[同期成功] ${type} 完了`);
       } else if (type === 'updateSeatData') {
         const res = await GasAPI.updateSeatData(...args);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'update failed');
+        console.log(`[同期成功] ${type} 完了`);
       } else {
         // 未知タイプは保持
         remaining.push(item);
+        console.log(`[同期スキップ] 未知の操作タイプ: ${type}`);
       }
       logSync(`Flush op done: ${type}`);
-    } catch (_) {
+    } catch (error) {
       // 失敗したものは残す（順序維持）
+      console.error(`[同期失敗] ${item.type} でエラー:`, error.message);
       remaining.push(item);
     }
   }
   writeQueue(remaining);
+
+  console.log(`[同期完了] 成功: ${queue.length - remaining.length}件, 失敗: ${remaining.length}件`);
 
   // 成功した分は最新データを取得してキャッシュ更新
   try { await backgroundSyncCurrentContext(); } catch (_) {}
@@ -498,6 +519,8 @@ function registerServiceWorker() {
 function onOnline() {
   // 本体の動作に影響させない
   try {
+    console.log('[オンライン復帰] オフライン操作の同期を開始します...');
+    
     // 元のGasAPIを自然に使用できるよう、差し替えは解除しない（安全策）。
     // 代わりにキュー反映とバックグラウンド同期のみ行う。
     flushQueue();
@@ -507,6 +530,7 @@ function onOnline() {
 
 function onOffline() {
   try {
+    console.log('[オフライン検知] オフライン操作モードに切り替えます');
     installOfflineOverrides();
     stopBackgroundSync();
     // オフライン時は一切の通信を行わない（バックグラウンドURL取得も停止）
