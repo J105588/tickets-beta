@@ -396,19 +396,37 @@ async function flushQueue() {
       logSync(`Flush op start: ${type}`);
       let res = null;
       if (type === 'reserveSeats') {
+        console.log(`[同期処理] GasAPI.reserveSeats を呼び出し中...`, args);
         res = await GasAPI.reserveSeats(...args);
         console.log(`[GAS応答] reserveSeats:`, res);
-        if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'reserve failed');
+        console.log(`[GAS応答詳細] 成功: ${res?.success}, メッセージ: ${res?.message}, エラー: ${res?.error}`);
+        
+        if (!res || res.success === false) {
+          console.error(`[同期失敗] reserveSeats が失敗しました:`, res);
+          throw new Error(res && (res.error || res.message) || 'reserve failed');
+        }
         console.log(`[同期成功] ${type} 完了`);
       } else if (type === 'checkInMultipleSeats') {
+        console.log(`[同期処理] GasAPI.checkInMultipleSeats を呼び出し中...`, args);
         res = await GasAPI.checkInMultipleSeats(...args);
         console.log(`[GAS応答] checkInMultipleSeats:`, res);
-        if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'checkin failed');
+        console.log(`[GAS応答詳細] 成功: ${res?.success}, メッセージ: ${res?.message}, エラー: ${res?.error}`);
+        
+        if (!res || res.success === false) {
+          console.error(`[同期失敗] checkInMultipleSeats が失敗しました:`, res);
+          throw new Error(res && (res.error || res.message) || 'checkin failed');
+        }
         console.log(`[同期成功] ${type} 完了`);
       } else if (type === 'updateSeatData') {
+        console.log(`[同期処理] GasAPI.updateSeatData を呼び出し中...`, args);
         res = await GasAPI.updateSeatData(...args);
         console.log(`[GAS応答] updateSeatData:`, res);
-        if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'update failed');
+        console.log(`[GAS応答詳細] 成功: ${res?.success}, メッセージ: ${res?.message}, エラー: ${res?.error}`);
+        
+        if (!res || res.success === false) {
+          console.error(`[同期失敗] updateSeatData が失敗しました:`, res);
+          throw new Error(res && (res.error || res.message) || 'update failed');
+        }
         console.log(`[同期成功] ${type} 完了`);
       } else {
         // 未知タイプは保持
@@ -624,6 +642,16 @@ window.OfflineSync = {
     } catch (error) {
       console.error('[デバッグ] スプレッドシート構造確認失敗:', error);
       return { success: false, error: error.message };
+    }
+  },
+  // 手動で同期を実行
+  manualSync: async () => {
+    try {
+      console.log('[手動同期] 開始...');
+      await flushQueue();
+      console.log('[手動同期] 完了');
+    } catch (error) {
+      console.error('[手動同期] 失敗:', error);
     }
   },
   // 現在のキャッシュ状態を表示
