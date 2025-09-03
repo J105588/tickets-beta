@@ -460,9 +460,14 @@ async function flushQueue() {
 // ===== 同期中モーダル制御 =====
 function showSyncModal() {
   try {
+    console.log('[同期モーダル] 表示開始...');
+    
     // 既存のモーダルがあれば削除
     const existing = document.getElementById('sync-modal');
-    if (existing) existing.remove();
+    if (existing) {
+      console.log('[同期モーダル] 既存モーダルを削除');
+      existing.remove();
+    }
 
     const modalHTML = `
       <div id="sync-modal" class="modal" style="display: block; z-index: 10000;">
@@ -473,15 +478,49 @@ function showSyncModal() {
         </div>
       </div>
     `;
+    
     document.body.insertAdjacentHTML('beforeend', modalHTML);
-  } catch (_) {}
+    console.log('[同期モーダル] モーダルを挿入完了');
+    
+    // モーダルが実際に表示されているか確認
+    const modal = document.getElementById('sync-modal');
+    if (modal) {
+      console.log('[同期モーダル] モーダル要素確認OK:', modal);
+      // 強制的に表示
+      modal.style.display = 'block';
+      modal.style.visibility = 'visible';
+      modal.style.opacity = '1';
+      
+      // DOMの状態を確認
+      console.log('[同期モーダル] DOM状態:', {
+        display: modal.style.display,
+        visibility: modal.style.visibility,
+        opacity: modal.style.opacity,
+        zIndex: modal.style.zIndex,
+        parentNode: modal.parentNode,
+        bodyChildren: document.body.children.length
+      });
+    } else {
+      console.error('[同期モーダル] モーダル要素が見つかりません');
+    }
+  } catch (error) {
+    console.error('[同期モーダル] 表示エラー:', error);
+  }
 }
 
 function hideSyncModal() {
   try {
+    console.log('[同期モーダル] 非表示開始...');
     const modal = document.getElementById('sync-modal');
-    if (modal) modal.remove();
-  } catch (_) {}
+    if (modal) {
+      modal.remove();
+      console.log('[同期モーダル] モーダルを削除完了');
+    } else {
+      console.log('[同期モーダル] 削除対象のモーダルが見つかりません');
+    }
+  } catch (error) {
+    console.error('[同期モーダル] 非表示エラー:', error);
+  }
 }
 
 // ===== バックグラウンド同期用URLへの同期要求 =====
@@ -634,9 +673,40 @@ window.OfflineSync = {
       const timeslot = params.get('timeslot');
       if (group && day && timeslot) {
         console.log('[デバッグ] スプレッドシート構造確認開始...', { group, day, timeslot });
-        const result = await GasAPI.debugSpreadsheetStructure(group, day, timeslot);
-        console.log('[デバッグ] スプレッドシート構造:', result);
-        return result;
+        
+        // まず、既存の関数でスプレッドシートの状態を確認
+        try {
+          console.log('[デバッグ] getSeatDataMinimal で現在の座席データを取得中...');
+          const seatData = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
+          console.log('[デバッグ] 現在の座席データ:', seatData);
+          
+          if (seatData && seatData.success && seatData.seatMap) {
+            const reservedSeats = Object.entries(seatData.seatMap)
+              .filter(([id, seat]) => seat.status === 'to-be-checked-in' || seat.status === 'checked-in')
+              .map(([id, seat]) => ({ id, status: seat.status }));
+            
+            console.log('[デバッグ] 予約済み座席:', reservedSeats);
+          }
+        } catch (error) {
+          console.error('[デバッグ] getSeatDataMinimal 失敗:', error);
+        }
+        
+        // debugSpreadsheetStructure関数が利用可能かテスト
+        try {
+          const result = await GasAPI.debugSpreadsheetStructure(group, day, timeslot);
+          console.log('[デバッグ] スプレッドシート構造:', result);
+          return result;
+        } catch (error) {
+          console.log('[デバッグ] debugSpreadsheetStructure は利用できません。既存の関数で調査を続行します。');
+          
+          // 代替手段: 基本的な情報を収集
+          return {
+            success: true,
+            message: 'debugSpreadsheetStructure は利用できませんが、基本的な調査は完了しました',
+            group, day, timeslot,
+            availableFunctions: ['getSeatDataMinimal', 'testApi']
+          };
+        }
       }
       return { success: false, error: 'URLパラメータが不足しています' };
     } catch (error) {
@@ -652,6 +722,130 @@ window.OfflineSync = {
       console.log('[手動同期] 完了');
     } catch (error) {
       console.error('[手動同期] 失敗:', error);
+    }
+  },
+  // 包括的なデバッグ実行
+  comprehensiveDebug: async () => {
+    try {
+      console.log('[包括的デバッグ] 開始...');
+      
+      // 1. GAS接続テスト
+      console.log('[デバッグ] 1. GAS接続テスト...');
+      const connectionTest = await OfflineSync.testGASConnection();
+      console.log('[デバッグ] GAS接続テスト結果:', connectionTest);
+      
+      // 2. スプレッドシート構造確認
+      console.log('[デバッグ] 2. スプレッドシート構造確認...');
+      const structureTest = await OfflineSync.debugSpreadsheetStructure();
+      console.log('[デバッグ] スプレッドシート構造確認結果:', structureTest);
+      
+      // 3. 現在のキャッシュ状態確認
+      console.log('[デバッグ] 3. キャッシュ状態確認...');
+      const cacheStatus = OfflineSync.showCacheStatus();
+      console.log('[デバッグ] キャッシュ状態:', cacheStatus);
+      
+      // 4. キュー状態確認
+      const queue = readQueue();
+      console.log('[デバッグ] 4. キュー状態:', {
+        length: queue.length,
+        items: queue.map(item => ({
+          type: item.type,
+          args: item.args,
+          enqueuedAt: new Date(item.enqueuedAt).toLocaleString('ja-JP')
+        }))
+      });
+      
+      console.log('[包括的デバッグ] 完了');
+      
+      return {
+        connectionTest,
+        structureTest,
+        cacheStatus,
+        queueLength: queue.length
+      };
+    } catch (error) {
+      console.error('[包括的デバッグ] 失敗:', error);
+      return { success: false, error: error.message };
+    }
+  },
+  // GAS APIの直接テスト
+  testGASDirectly: async () => {
+    try {
+      console.log('[GAS直接テスト] 開始...');
+      
+      const params = new URLSearchParams(window.location.search);
+      const group = params.get('group');
+      const day = params.get('day');
+      const timeslot = params.get('timeslot');
+      
+      if (!group || !day || !timeslot) {
+        return { success: false, error: 'URLパラメータが不足しています' };
+      }
+      
+      console.log('[GAS直接テスト] パラメータ:', { group, day, timeslot });
+      
+      // 1. 現在の座席データを取得
+      console.log('[GAS直接テスト] 1. 現在の座席データを取得...');
+      const currentData = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
+      console.log('[GAS直接テスト] 現在の座席データ:', currentData);
+      
+      // 2. テスト用の予約を実行（実際の座席IDを使用）
+      if (currentData && currentData.success && currentData.seatMap) {
+        const availableSeats = Object.entries(currentData.seatMap)
+          .filter(([id, seat]) => seat.status === 'available')
+          .slice(0, 1) // 最初の1つの空席のみ
+          .map(([id, seat]) => id);
+        
+        if (availableSeats.length > 0) {
+          console.log('[GAS直接テスト] 2. テスト予約を実行...', { testSeats: availableSeats });
+          
+          // テスト用の予約を実行
+          const testReservation = await GasAPI.reserveSeats(group, day, timeslot, availableSeats);
+          console.log('[GAS直接テスト] テスト予約結果:', testReservation);
+          
+          // 3. 予約後の座席データを再取得
+          if (testReservation && testReservation.success) {
+            console.log('[GAS直接テスト] 3. 予約後の座席データを再取得...');
+            const updatedData = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
+            console.log('[GAS直接テスト] 更新後の座席データ:', updatedData);
+            
+            // 変更があったかを確認
+            const changes = [];
+            if (updatedData && updatedData.success && updatedData.seatMap) {
+              availableSeats.forEach(seatId => {
+                const before = currentData.seatMap[seatId];
+                const after = updatedData.seatMap[seatId];
+                if (before && after && before.status !== after.status) {
+                  changes.push({
+                    seatId,
+                    before: before.status,
+                    after: after.status
+                  });
+                }
+              });
+            }
+            
+            console.log('[GAS直接テスト] 変更内容:', changes);
+            
+            return {
+              success: true,
+              testSeats: availableSeats,
+              reservationResult: testReservation,
+              changes: changes,
+              before: currentData,
+              after: updatedData
+            };
+          }
+        } else {
+          console.log('[GAS直接テスト] 空席が見つかりません');
+        }
+      }
+      
+      return { success: false, error: 'テスト用の空席が見つかりません' };
+      
+    } catch (error) {
+      console.error('[GAS直接テスト] 失敗:', error);
+      return { success: false, error: error.message };
     }
   },
   // 現在のキャッシュ状態を表示
