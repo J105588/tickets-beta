@@ -15,6 +15,19 @@ const STORAGE_PREFIX = 'offlineSeats'; // localStorage キー接頭辞
 const QUEUE_KEY = `${STORAGE_PREFIX}:pendingQueue`;
 const META_KEY = `${STORAGE_PREFIX}:meta`;
 const BACKGROUND_SYNC_URL_KEY = `${STORAGE_PREFIX}:backgroundSyncUrl`;
+const ENABLE_SYNC_LOG = true;
+
+function logSync(message, details) {
+  try {
+    if (!ENABLE_SYNC_LOG) return;
+    const ts = new Date().toISOString();
+    if (details !== undefined) {
+      console.log(`[OfflineSync ${ts}] ${message}`, details);
+    } else {
+      console.log(`[OfflineSync ${ts}] ${message}`);
+    }
+  } catch (_) {}
+}
 
 // ===== ユーティリティ =====
 function getKey(group, day, timeslot) {
@@ -40,6 +53,10 @@ function writeCache(group, day, timeslot, data) {
     const meta = safeParse(localStorage.getItem(META_KEY), {});
     meta.lastCachedAt = Date.now();
     localStorage.setItem(META_KEY, JSON.stringify(meta));
+    try {
+      const count = data && data.seatMap ? Object.keys(data.seatMap).length : 0;
+      logSync(`Cached seat data for ${group}-${day}-${timeslot} (count=${count})`);
+    } catch (_) {}
   } catch (_) {}
 }
 
@@ -90,12 +107,15 @@ async function backgroundSyncCurrentContext() {
     if (!group || !day || !timeslot) return; // 該当ページでない
 
     // 通常は最小データで十分
+    logSync(`Background pre-sync start for ${group}-${day}-${timeslot}`);
     const minimal = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
     if (minimal && minimal.seatMap) {
       writeCache(group, day, timeslot, minimal);
     }
+    logSync(`Background pre-sync done for ${group}-${day}-${timeslot}`);
   } catch (_) {
     // 失敗しても本体に影響しない
+    logSync('Background pre-sync failed');
   }
 }
 
@@ -270,6 +290,7 @@ async function flushQueue() {
   for (const item of queue) {
     try {
       const { type, args } = item;
+      logSync(`Flush op start: ${type}`);
       if (type === 'reserveSeats') {
         const res = await GasAPI.reserveSeats(...args);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'reserve failed');
@@ -283,6 +304,7 @@ async function flushQueue() {
         // 未知タイプは保持
         remaining.push(item);
       }
+      logSync(`Flush op done: ${type}`);
     } catch (_) {
       // 失敗したものは残す（順序維持）
       remaining.push(item);
@@ -303,6 +325,7 @@ async function syncToBackgroundUrl(group, day, timeslot, operations) {
     const callbackName = 'jsonpCallback_sync_' + Date.now();
     const encodedParams = encodeURIComponent(JSON.stringify([group, day, timeslot, operations]));
     const url = `${backgroundUrl}?callback=${callbackName}&func=syncOfflineOperations&params=${encodedParams}&_=${Date.now()}`;
+    logSync(`Request sync to background URL for ${group}-${day}-${timeslot}`, { operations: operations.length });
 
     return new Promise((resolve) => {
       const script = document.createElement('script');
@@ -385,26 +408,43 @@ function onOffline() {
 }
 
 // ===== 初期化 =====
-(function init() {
+function __offlineSyncBoot() {
   if (!OFFLINE_FEATURE_ENABLED) return;
-  registerServiceWorker();
+
+  // Service Worker の登録は読み込み完了後に実施
+  try { registerServiceWorker(); } catch (_) {}
 
   // バックグラウンド同期用URLを設定
   if (BACKGROUND_SYNC_URL) {
     setBackgroundSyncUrl(BACKGROUND_SYNC_URL);
   }
 
+  // 初期状態に応じて、バックグラウンドで開始
   if (isOffline()) {
-    installOfflineOverrides();
+    // オフライン時は差し替えのみ行い、以降はイベントで反応
+    try { installOfflineOverrides(); } catch (_) {}
   } else {
-    startBackgroundSync();
-    // 起動時に一度同期
-    backgroundSyncCurrentContext();
+    // オンライン時はバックグラウンド同期間隔起動＋一度だけの同期
+    try { startBackgroundSync(); } catch (_) {}
+    try { setTimeout(backgroundSyncCurrentContext, 0); } catch (_) {}
   }
 
-  window.addEventListener('online', onOnline);
-  window.addEventListener('offline', onOffline);
-})();
+  // オンライン/オフラインイベントハンドラ（非同期で処理）
+  window.addEventListener('online', () => { setTimeout(onOnline, 0); });
+  window.addEventListener('offline', () => { setTimeout(onOffline, 0); });
+}
+
+// 画面ロード完了後、アイドル時間に初期化（フォールバックあり）
+const __scheduleInit = () => {
+  const ric = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0); };
+  ric(__offlineSyncBoot);
+};
+
+if (document.readyState === 'complete') {
+  __scheduleInit();
+} else {
+  window.addEventListener('load', __scheduleInit);
+}
 
 // ===== グローバル関数（設定用） =====
 window.OfflineSync = {
