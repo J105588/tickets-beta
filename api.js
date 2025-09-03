@@ -240,6 +240,13 @@ class GasAPI {
       return { success: false, error: error.message };
     }
   }
+
+  // デバッグ用関数
+  static async debugSpreadsheetStructure(group, day, timeslot) {
+    return this._callApi('debugSpreadsheetStructure', [group, day, timeslot]);
+  }
+
+  // 危険コマンド実行
 }
 
 export default GasAPI;

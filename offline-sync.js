@@ -607,6 +607,25 @@ window.OfflineSync = {
       return { success: false, error: error.message };
     }
   },
+  // スプレッドシート構造をデバッグ
+  debugSpreadsheetStructure: async () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const group = params.get('group');
+      const day = params.get('day');
+      const timeslot = params.get('timeslot');
+      if (group && day && timeslot) {
+        console.log('[デバッグ] スプレッドシート構造確認開始...', { group, day, timeslot });
+        const result = await GasAPI.debugSpreadsheetStructure(group, day, timeslot);
+        console.log('[デバッグ] スプレッドシート構造:', result);
+        return result;
+      }
+      return { success: false, error: 'URLパラメータが不足しています' };
+    } catch (error) {
+      console.error('[デバッグ] スプレッドシート構造確認失敗:', error);
+      return { success: false, error: error.message };
+    }
+  },
   // 現在のキャッシュ状態を表示
   showCacheStatus: () => {
     try {

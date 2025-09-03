@@ -279,7 +279,53 @@ function getSeatDataMinimal(group, day, timeslot, isAdmin = false) {
 }
 
 /**
- * ユーザーが選択した複数の座席を予約する（最適化版）。
+ * スプレッドシートの構造をデバッグする関数
+ */
+function debugSpreadsheetStructure(group, day, timeslot) {
+  try {
+    const sheet = getSheet(group, day, timeslot, 'SEAT');
+    if (!sheet) {
+      return { success: false, error: "シートが見つかりません" };
+    }
+
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    
+    // ヘッダー行を取得
+    const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    
+    // 最初の数行のデータを取得
+    const sampleData = sheet.getRange(2, 1, Math.min(5, lastRow - 1), lastCol).getValues();
+    
+    // 列の情報を取得
+    const columnInfo = [];
+    for (let i = 0; i < lastCol; i++) {
+      const colLetter = String.fromCharCode(65 + i); // A, B, C...
+      columnInfo.push({
+        column: colLetter,
+        index: i,
+        header: headers[i] || '',
+        sampleValues: sampleData.map(row => row[i]).filter(val => val !== '')
+      });
+    }
+
+    return {
+      success: true,
+      sheetName: sheet.getName(),
+      lastRow: lastRow,
+      lastColumn: lastCol,
+      headers: headers,
+      sampleData: sampleData,
+      columnInfo: columnInfo
+    };
+  } catch (e) {
+    Logger.log(`debugSpreadsheetStructure Error: ${e.message}\n${e.stack}`);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * ユーザーが選択した複数の座席を予約する（修正版）。
  */
 function reserveSeats(group, day, timeslot, selectedSeats) {
   if (!Array.isArray(selectedSeats) || selectedSeats.length === 0) {
@@ -297,6 +343,8 @@ function reserveSeats(group, day, timeslot, selectedSeats) {
       const sheet = getSheet(group, day, timeslot, 'SEAT');
       if (!sheet) throw new Error("対象の公演シートが見つかりませんでした。");
 
+      Logger.log(`reserveSeats: 開始 - ${group}-${day}-${timeslot}, 座席: ${selectedSeats.join(', ')}`);
+
       // 最適化: 必要な列のみ取得（A, C列）
       const dataRange = sheet.getRange("A2:C" + sheet.getLastRow());
       const data = dataRange.getValues();
@@ -312,8 +360,9 @@ function reserveSeats(group, day, timeslot, selectedSeats) {
           if (data[i][2] !== '空') {
             throw new Error(`座席 ${seatId} は既に他のお客様によって予約されています。ページを更新して再度お試しください。`);
           }
-          updatedRows.push({ row: i + 2, values: ['予約済', '', ''] });
+          updatedRows.push({ row: i + 2, seatId: seatId });
           reservationSuccess = true;
+          Logger.log(`予約対象座席: ${seatId} (行: ${i + 2})`);
         }
       }
 
@@ -322,11 +371,15 @@ function reserveSeats(group, day, timeslot, selectedSeats) {
       }
 
       // 最適化: バッチ更新で一括処理
-      updatedRows.forEach(({ row, values }) => {
-        sheet.getRange(row, 3, 1, 3).setValues([values]);
+      updatedRows.forEach(({ row, seatId }) => {
+        // C列（3列目）に「予約済」を設定
+        sheet.getRange(row, 3).setValue("予約済");
+        Logger.log(`座席 ${seatId} を予約済に更新 (行: ${row}, 列: C)`);
       });
 
       SpreadsheetApp.flush();
+      Logger.log(`reserveSeats: 完了 - ${updatedRows.length}件の座席を予約`);
+      
       return { success: true, message: `予約が完了しました。\n座席: ${selectedSeats.join(', ')}` };
 
     } catch (e) {
