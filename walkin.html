@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>座席管理システム - 当日券発行</title>
+  <meta name="description" content="当日券の発行を行います">
+  <meta name="theme-color" content="#007bff">
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="dns-prefetch" href="https://script.google.com">
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/J105588/video-nazuna/main/images/IMG_5316.png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="sidebar.css">
+  <link rel="stylesheet" href="walkin.css">
+</head>
+<body>
+
+  <div id="sidebar-container"></div>
+
+  <div id="main-content">
+    <div class="page-header">
+      <span class="menu-btn" onclick="toggleSidebar()">&#9776;</span >
+      <div class="header-title-container">
+        <h1>当日券 発行</h1>
+      </div>
+    </div>
+    
+    <div class="container">
+      <div class="card walkin-card">
+        <p>公演：<span id="performance-info"></span></p>
+        <p class="description">下のボタンを押すと、現在空いている席の中から1席を自動で確保します。</p>
+        <div class="walkin-qty-row">
+          <label for="walkin-count" class="walkin-qty-label">枚数</label>
+          <div class="walkin-qty">
+            <button type="button" class="qty-btn" id="qty-decrease" aria-label="減らす">−</button>
+            <input id="walkin-count" class="qty-input" type="number" inputmode="numeric" min="1" max="6" value="1" />
+            <button type="button" class="qty-btn" id="qty-increase" aria-label="増やす">＋</button>
+          </div>
+        </div>
+        <div class="walkin-actions">
+          <button id="walkin-open-modal-btn" class="walkin-button primary disabled-mode" onclick="openWalkinOptionModal()" disabled>当日券モードでログインしてください</button>
+        </div>
+      </div>
+      
+      <div id="reservation-result" class="reservation-result">
+        <div class="reservation-title">当日券発行完了</div>
+        <div id="reserved-seat" class="reserved-seat"></div>
+        <div class="reservation-details" id="reservation-details"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading-modal" class="modal" style="display: none;">
+    <div class="modal-content" style="text-align: center;">
+      <div class="spinner"></div>
+      <p>処理中です...</p>
+    </div>
+  </div>
+
+  <div id="error-container" class="error-container" style="display: none;">
+    <div class="error-content">
+      <p id="error-message">エラーが発生しました</p>
+      <div class="error-buttons">
+        <button onclick="history.back()">戻る</button>
+        <button onclick="location.reload()">再読み込み</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="walkin-option-modal" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:480px;">
+      <h3>発行方法を選択</h3>
+      <p style="color:#555;margin-top:0;">指定した枚数の座席の確保方法を選んでください。</p>
+      <div class="walkin-option-buttons">
+        <button class="walkin-button primary" onclick="issueWalkinConsecutive()">一緒（同一行の連続席で確保）</button>
+        <button class="walkin-button secondary" onclick="issueWalkinAnywhere()">どこでもよい（ランダム）</button>
+      </div>
+      <div style="text-align:right;margin-top:12px;">
+        <button class="walkin-button secondary" onclick="closeWalkinOptionModal()">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="config.js"></script>
+  <script type="module" src="api.js"></script>
+  <script type="module" src="sidebar.js"></script>
+  <script type="module" src="walkin-main.js"></script>
+  <script type="module" src="system-lock.js"></script>
+  <script type="module" src="offline-sync.js"></script>
+</body>
+</html>

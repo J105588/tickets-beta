@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>座席管理システム - 組選択</title>
+  <meta name="description" content="文化祭やイベント向けの座席予約・チェックイン・当日券発行システム">
+  <meta name="theme-color" content="#007bff">
+  <link rel="preconnect" href="https://script.google.com" crossorigin>
+  <link rel="dns-prefetch" href="https://script.google.com">
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/J105588/video-nazuna/main/images/IMG_5316.png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div id="sidebar-container"></div>
+
+  <div id="main-content">
+    <header class="page-header">
+      <button class="menu-btn" onclick="toggleSidebar()">&#9776;</button>
+      <h1>組選択</h1>
+    </header>
+    <main class="container">
+      <p class="description">管理する組または演劇を選択してください。</p>
+      <div class="grid-container">
+        <a class="grid-item" href="timeslot.html?group=1">1組</a>
+        <a class="grid-item" href="timeslot.html?group=2">2組</a>
+        <a class="grid-item" href="timeslot.html?group=3">3組</a>
+        <a class="grid-item" href="timeslot.html?group=4">4組</a>
+        <a class="grid-item" href="timeslot.html?group=5">5組</a>
+        <a class="grid-item" href="timeslot.html?group=6">6組</a>
+        <a class="grid-item" href="timeslot.html?group=7">7組</a>
+        <a class="grid-item" href="timeslot.html?group=8">8組</a>
+        <a class="grid-item" href="timeslot.html?group=見本演劇">見本演劇</a>
+      </div>
+    </main>
+  </div>
+
+  <div id="error-container" class="error-container" style="display: none;">
+    <div class="error-content">
+      <p id="error-message">エラーが発生しました</p>
+      <div class="error-buttons">
+        <button onclick="history.back()">戻る</button>
+        <button onclick="location.reload()">再読み込み</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="index-main.js"></script>
+  <script type="module" src="system-lock.js"></script>
+  <script type="module" src="offline-sync.js"></script>
+</body>
+</html>
