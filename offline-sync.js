@@ -6,13 +6,15 @@
 // - 再接続時: キューを順次サーバーへ反映
 
 import GasAPI from './api.js';
+import { BACKGROUND_SYNC_URL } from './config.js';
 
 // ===== 設定 =====
 const OFFLINE_FEATURE_ENABLED = true; // 必要なら遠隔で切替可能に
-const SYNC_INTERVAL_MS = 60 * 1000; // バックグラウンド同期間隔（1分）
+const SYNC_INTERVAL_MS = 30 * 1000; // バックグラウンド同期間隔（30秒）
 const STORAGE_PREFIX = 'offlineSeats'; // localStorage キー接頭辞
 const QUEUE_KEY = `${STORAGE_PREFIX}:pendingQueue`;
 const META_KEY = `${STORAGE_PREFIX}:meta`;
+const BACKGROUND_SYNC_URL_KEY = `${STORAGE_PREFIX}:backgroundSyncUrl`;
 
 // ===== ユーティリティ =====
 function getKey(group, day, timeslot) {
@@ -51,12 +53,30 @@ function writeQueue(queue) {
 
 function enqueue(operation) {
   const q = readQueue();
+  // 競合検出用に前提状態（precondition）を含められるようにする
+  // operation: { type, args, pre?: { seatId -> {columnC,columnD,columnE,status} or arbitrary } }
   q.push({ ...operation, enqueuedAt: Date.now() });
   writeQueue(q);
 }
 
 function isOffline() {
   try { return !navigator.onLine; } catch (_) { return false; }
+}
+
+function getBackgroundSyncUrl() {
+  try {
+    return localStorage.getItem(BACKGROUND_SYNC_URL_KEY) || null;
+  } catch (_) { return null; }
+}
+
+function setBackgroundSyncUrl(url) {
+  try {
+    if (url) {
+      localStorage.setItem(BACKGROUND_SYNC_URL_KEY, url);
+    } else {
+      localStorage.removeItem(BACKGROUND_SYNC_URL_KEY);
+    }
+  } catch (_) {}
 }
 
 // ===== バックグラウンド同期（オンライン時） =====
@@ -76,6 +96,55 @@ async function backgroundSyncCurrentContext() {
     }
   } catch (_) {
     // 失敗しても本体に影響しない
+  }
+}
+
+// ===== バックグラウンド同期用URLからのデータ取得 =====
+async function fetchFromBackgroundSyncUrl(group, day, timeslot) {
+  try {
+    const backgroundUrl = getBackgroundSyncUrl();
+    if (!backgroundUrl) return null;
+
+    const callbackName = 'jsonpCallback_bgSync_' + Date.now();
+    const encodedParams = encodeURIComponent(JSON.stringify([group, day, timeslot, false]));
+    const url = `${backgroundUrl}?callback=${callbackName}&func=getSeatDataMinimal&params=${encodedParams}&_=${Date.now()}`;
+
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+
+      window[callbackName] = (data) => {
+        try {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+          resolve(data);
+        } catch (e) {
+          resolve(null);
+        }
+      };
+
+      script.onerror = () => {
+        try {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        } catch (_) {}
+        resolve(null);
+      };
+
+      (document.head || document.body).appendChild(script);
+
+      // タイムアウト
+      setTimeout(() => {
+        try {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        } catch (_) {}
+        resolve(null);
+      }, 10000);
+    });
+  } catch (_) {
+    return null;
   }
 }
 
@@ -136,7 +205,10 @@ function installOfflineOverrides() {
       cached.seatMap[id].columnE = '';
     });
     writeCache(group, day, timeslot, cached);
-    enqueue({ type: 'reserveSeats', args: [group, day, timeslot, selectedSeats] });
+    // precondition: 予約対象がすべて available であること
+    const pre = {};
+    (selectedSeats || []).forEach(id => { const s = cached.seatMap[id] || {}; pre[id] = { status: 'available' }; });
+    enqueue({ type: 'reserveSeats', args: [group, day, timeslot, selectedSeats], pre });
     return { success: true, message: `オフラインで予約を受け付けました (${(selectedSeats||[]).join(', ')})` };
   };
 
@@ -148,7 +220,10 @@ function installOfflineOverrides() {
       cached.seatMap[id].columnE = '済';
     });
     writeCache(group, day, timeslot, cached);
-    enqueue({ type: 'checkInMultipleSeats', args: [group, day, timeslot, seatIds] });
+    // precondition: 対象が予約済または確保
+    const pre = {};
+    (seatIds || []).forEach(id => { pre[id] = { status: 'to-be-checked-in' } });
+    enqueue({ type: 'checkInMultipleSeats', args: [group, day, timeslot, seatIds], pre });
     return { success: true, message: `${(seatIds||[]).length}件の座席をオフラインでチェックインしました。` };
   };
 
@@ -168,7 +243,9 @@ function installOfflineOverrides() {
     else if (c === '空' || c === '') status = 'available';
     cached.seatMap[seatId].status = status;
     writeCache(group, day, timeslot, cached);
-    enqueue({ type: 'updateSeatData', args: [group, day, timeslot, seatId, columnC, columnD, columnE] });
+    // precondition: 現在のキャッシュ状態を送る（GAS側で比較）
+    const pre = {}; pre[seatId] = { columnC: cached.seatMap[seatId].columnC || '', columnD: cached.seatMap[seatId].columnD || '', columnE: cached.seatMap[seatId].columnE || '' };
+    enqueue({ type: 'updateSeatData', args: [group, day, timeslot, seatId, columnC, columnD, columnE], pre });
     return { success: true, message: 'オフラインで座席データを更新しました' };
   };
 
@@ -217,6 +294,55 @@ async function flushQueue() {
   try { await backgroundSyncCurrentContext(); } catch (_) {}
 }
 
+// ===== バックグラウンド同期用URLへの同期要求 =====
+async function syncToBackgroundUrl(group, day, timeslot, operations) {
+  try {
+    const backgroundUrl = getBackgroundSyncUrl();
+    if (!backgroundUrl || !operations.length) return false;
+
+    const callbackName = 'jsonpCallback_sync_' + Date.now();
+    const encodedParams = encodeURIComponent(JSON.stringify([group, day, timeslot, operations]));
+    const url = `${backgroundUrl}?callback=${callbackName}&func=syncOfflineOperations&params=${encodedParams}&_=${Date.now()}`;
+
+    return new Promise((resolve) => {
+      const script = document.createElement('script');
+      script.src = url;
+      script.async = true;
+
+      window[callbackName] = (data) => {
+        try {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+          resolve(data && data.success === true);
+        } catch (e) {
+          resolve(false);
+        }
+      };
+
+      script.onerror = () => {
+        try {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        } catch (_) {}
+        resolve(false);
+      };
+
+      (document.head || document.body).appendChild(script);
+
+      // タイムアウト
+      setTimeout(() => {
+        try {
+          delete window[callbackName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        } catch (_) {}
+        resolve(false);
+      }, 15000);
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
 // ===== Service Worker 登録（静的資産キャッシュ） =====
 function registerServiceWorker() {
   try {
@@ -241,6 +367,20 @@ function onOffline() {
   try {
     installOfflineOverrides();
     stopBackgroundSync();
+    
+    // オフライン検知時にバックグラウンド同期用URLから最新データを取得
+    const params = new URLSearchParams(window.location.search);
+    const group = params.get('group');
+    const day = params.get('day');
+    const timeslot = params.get('timeslot');
+    
+    if (group && day && timeslot) {
+      fetchFromBackgroundSyncUrl(group, day, timeslot).then(data => {
+        if (data && data.success && data.seatMap) {
+          writeCache(group, day, timeslot, data);
+        }
+      }).catch(_ => {});
+    }
   } catch (_) {}
 }
 
@@ -248,6 +388,11 @@ function onOffline() {
 (function init() {
   if (!OFFLINE_FEATURE_ENABLED) return;
   registerServiceWorker();
+
+  // バックグラウンド同期用URLを設定
+  if (BACKGROUND_SYNC_URL) {
+    setBackgroundSyncUrl(BACKGROUND_SYNC_URL);
+  }
 
   if (isOffline()) {
     installOfflineOverrides();
@@ -260,5 +405,14 @@ function onOffline() {
   window.addEventListener('online', onOnline);
   window.addEventListener('offline', onOffline);
 })();
+
+// ===== グローバル関数（設定用） =====
+window.OfflineSync = {
+  setBackgroundSyncUrl: setBackgroundSyncUrl,
+  getBackgroundSyncUrl: getBackgroundSyncUrl,
+  flushQueue: flushQueue,
+  readQueue: readQueue,
+  writeQueue: writeQueue
+};
 
 

@@ -56,7 +56,8 @@ function getFunctionMap() {
     'reportError': reportError,
     'getSystemLock': getSystemLock,
     'setSystemLock': setSystemLock,
-    'execDangerCommand': execDangerCommand
+    'execDangerCommand': execDangerCommand,
+    'syncOfflineOperations': syncOfflineOperations
   };
 }
 
@@ -111,7 +112,7 @@ function getSeatDataMinimal(group, day, timeslot, isAdmin) {
   } catch (e) { return { success: false, error: e.message }; }
 }
 
-function reserveSeats(group, day, timeslot, selectedSeats) {
+function reserveSeats(group, day, timeslot, selectedSeats, pre) {
   if (!Array.isArray(selectedSeats) || !selectedSeats.length) return { success: false, message: '予約する座席が選択されていません。' };
   const invalid = selectedSeats.filter(id => !isValidSeatId(id)); if (invalid.length) return { success: false, message: `無効な座席ID: ${invalid.join(', ')}` };
   const lock = LockService.getScriptLock(); if (!lock.tryLock(15000)) return { success: false, message: '混み合っています。時間をおいて再試行してください。' };
@@ -123,6 +124,10 @@ function reserveSeats(group, day, timeslot, selectedSeats) {
       const seatId = String(data[i][0]) + String(data[i][1]);
       if (!isValidSeatId(seatId)) continue;
       if (selectedSeats.includes(seatId)) {
+        // 競合検出: pre に available 前提がある場合は現在値と比較
+        if (pre && pre[seatId] && pre[seatId].status === 'available' && data[i][2] !== '空') {
+          throw new Error(`競合: ${seatId} は既に変化しています。`);
+        }
         if (data[i][2] !== '空') throw new Error(`座席 ${seatId} は既に予約されています。`);
         updates.push({ row: i + 2, values: ['予約済', '', ''] });
       }
@@ -151,7 +156,7 @@ function checkInSeat(group, day, timeslot, seatId) {
   } catch (e) { return { success: false, message: e.message }; } finally { lock.releaseLock(); }
 }
 
-function checkInMultipleSeats(group, day, timeslot, seatIds) {
+function checkInMultipleSeats(group, day, timeslot, seatIds, pre) {
   if (!Array.isArray(seatIds) || !seatIds.length) return { success: false, message: 'チェックインする座席が選択されていません。' };
   const invalid = seatIds.filter(id => !isValidSeatId(id)); if (invalid.length) return { success: false, message: `無効な座席ID: ${invalid.join(', ')}` };
   const lock = LockService.getScriptLock(); if (!lock.tryLock(15000)) return { success: false, message: '処理が混み合っています。' };
@@ -166,7 +171,9 @@ function checkInMultipleSeats(group, day, timeslot, seatIds) {
         const currentSeatId = String(data[i][0]) + String(data[i][1]);
         if (currentSeatId === seatId) {
           found = true; const status = data[i][2];
-          if (status === '予約済' || status === '確保') {
+          if (pre && pre[seatId] && pre[seatId].status === 'to-be-checked-in' && !(status === '予約済' || status === '確保')) {
+            errors.push(`競合: ${seatId} の状態が変化しています（現在: ${status}）`);
+          } else if (status === '予約済' || status === '確保') {
             if (status === '確保') updates.push({ row: i + 2, col: 3, value: '予約済' });
             updates.push({ row: i + 2, col: 5, value: '済' });
             successCount++;
@@ -268,7 +275,7 @@ function verifyModePassword(mode, password) {
   } catch (e) { return { success: false }; }
 }
 
-function updateSeatData(group, day, timeslot, seatId, columnC, columnD, columnE) {
+function updateSeatData(group, day, timeslot, seatId, columnC, columnD, columnE, pre) {
   try {
     const lock = LockService.getScriptLock(); if (!lock.tryLock(10000)) return { success: false, message: '混み合っています。' };
     try {
@@ -278,6 +285,16 @@ function updateSeatData(group, day, timeslot, seatId, columnC, columnD, columnE)
       const rowLabel = m[1]; const colLabel = m[2];
       let targetRow = -1; for (let i = 0; i < data.length; i++) { if (data[i][0] === rowLabel && String(data[i][1]) === colLabel) { targetRow = i + 1; break; } }
       if (targetRow === -1) return { success: false, message: '指定された座席が見つかりません' };
+      // 競合検出: pre に C/D/E の期待値がある場合は現在値と比較
+      if (pre && pre[seatId]) {
+        const curC = (sheet.getRange(targetRow, 3).getValue() + '').trim();
+        const curD = (sheet.getRange(targetRow, 4).getValue() + '').trim();
+        const curE = (sheet.getRange(targetRow, 5).getValue() + '').trim();
+        const exp = pre[seatId];
+        if ((exp.columnC !== undefined && (exp.columnC + '') !== curC) || (exp.columnD !== undefined && (exp.columnD + '') !== curD) || (exp.columnE !== undefined && (exp.columnE + '') !== curE)) {
+          return { success: false, message: '競合が発生しました。最新の座席データを取得してから再実行してください。', conflict: true, current: { columnC: curC, columnD: curD, columnE: curE } };
+        }
+      }
       if (columnC !== undefined) sheet.getRange(targetRow, 3).setValue(columnC);
       if (columnD !== undefined) sheet.getRange(targetRow, 4).setValue(columnD);
       if (columnE !== undefined) sheet.getRange(targetRow, 5).setValue(columnE);
@@ -379,6 +396,68 @@ function execDangerCommand(action, payload, password) {
     if (!superAdminPassword || password !== superAdminPassword) return { success: false, message: '認証に失敗しました' };
     return performDangerAction(action, payload || {});
   } catch (e) { return { success: false, message: e.message }; }
+}
+
+// ===== オフライン操作の同期機能 =====
+function syncOfflineOperations(group, day, timeslot, operations) {
+  try {
+    if (!Array.isArray(operations) || operations.length === 0) {
+      return { success: false, message: '同期する操作がありません' };
+    }
+
+    const lock = LockService.getScriptLock();
+    if (!lock.tryLock(30000)) {
+      return { success: false, message: '処理が混み合っています。しばらく時間をおいてから再度お試しください。' };
+    }
+
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (const operation of operations) {
+        try {
+          const { type, args } = operation;
+          let result = null;
+
+          if (type === 'reserveSeats') {
+            result = reserveSeats(...args);
+          } else if (type === 'checkInMultipleSeats') {
+            result = checkInMultipleSeats(...args);
+          } else if (type === 'updateSeatData') {
+            result = updateSeatData(...args);
+          } else {
+            errors.push(`未知の操作タイプ: ${type}`);
+            errorCount++;
+            continue;
+          }
+
+          if (result && result.success) {
+            successCount++;
+          } else {
+            errors.push(`${type}: ${result ? result.message || result.error : '不明なエラー'}`);
+            errorCount++;
+          }
+        } catch (e) {
+          errors.push(`${operation.type}: ${e.message}`);
+          errorCount++;
+        }
+      }
+
+      return {
+        success: errorCount === 0,
+        message: `${successCount}件の操作を同期しました${errorCount > 0 ? `（${errorCount}件失敗）` : ''}`,
+        successCount: successCount,
+        errorCount: errorCount,
+        errors: errors
+      };
+
+    } finally {
+      lock.releaseLock();
+    }
+  } catch (e) {
+    return { success: false, message: `同期エラー: ${e.message}` };
+  }
 }
 
 
