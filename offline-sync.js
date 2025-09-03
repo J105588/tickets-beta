@@ -394,16 +394,20 @@ async function flushQueue() {
       const { type, args } = item;
       console.log(`[同期処理] ${type} を実行中...`, args);
       logSync(`Flush op start: ${type}`);
+      let res = null;
       if (type === 'reserveSeats') {
-        const res = await GasAPI.reserveSeats(...args);
+        res = await GasAPI.reserveSeats(...args);
+        console.log(`[GAS応答] reserveSeats:`, res);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'reserve failed');
         console.log(`[同期成功] ${type} 完了`);
       } else if (type === 'checkInMultipleSeats') {
-        const res = await GasAPI.checkInMultipleSeats(...args);
+        res = await GasAPI.checkInMultipleSeats(...args);
+        console.log(`[GAS応答] checkInMultipleSeats:`, res);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'checkin failed');
         console.log(`[同期成功] ${type} 完了`);
       } else if (type === 'updateSeatData') {
-        const res = await GasAPI.updateSeatData(...args);
+        res = await GasAPI.updateSeatData(...args);
+        console.log(`[GAS応答] updateSeatData:`, res);
         if (!res || res.success === false) throw new Error(res && (res.error || res.message) || 'update failed');
         console.log(`[同期成功] ${type} 完了`);
       } else {
@@ -423,7 +427,13 @@ async function flushQueue() {
   console.log(`[同期完了] 成功: ${queue.length - remaining.length}件, 失敗: ${remaining.length}件`);
 
   // 成功した分は最新データを取得してキャッシュ更新
-  try { await backgroundSyncCurrentContext(); } catch (_) {}
+  try { 
+    console.log('[同期後] 最新データを取得してキャッシュを更新中...');
+    await backgroundSyncCurrentContext(); 
+    console.log('[同期後] キャッシュ更新完了');
+  } catch (error) {
+    console.error('[同期後] キャッシュ更新失敗:', error);
+  }
 
   // 同期完了、モーダルを非表示
   hideSyncModal();
@@ -584,7 +594,43 @@ window.OfflineSync = {
   readQueue: readQueue,
   writeQueue: writeQueue,
   showSyncModal: showSyncModal,
-  hideSyncModal: hideSyncModal
+  hideSyncModal: hideSyncModal,
+  // デバッグ用関数
+  testGASConnection: async () => {
+    try {
+      console.log('[デバッグ] GAS接続テスト開始...');
+      const testResult = await GasAPI.testApi();
+      console.log('[デバッグ] GAS接続テスト結果:', testResult);
+      return testResult;
+    } catch (error) {
+      console.error('[デバッグ] GAS接続テスト失敗:', error);
+      return { success: false, error: error.message };
+    }
+  },
+  // 現在のキャッシュ状態を表示
+  showCacheStatus: () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const group = params.get('group');
+      const day = params.get('day');
+      const timeslot = params.get('timeslot');
+      if (group && day && timeslot) {
+        const cache = readCache(group, day, timeslot);
+        const queue = readQueue();
+        console.log('[キャッシュ状態]', {
+          group, day, timeslot,
+          cache: cache ? 'あり' : 'なし',
+          queueLength: queue.length,
+          queue: queue
+        });
+        return { cache, queue };
+      }
+      return null;
+    } catch (error) {
+      console.error('[キャッシュ状態確認失敗]:', error);
+      return null;
+    }
+  }
 };
 
 
