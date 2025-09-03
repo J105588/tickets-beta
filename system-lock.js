@@ -51,6 +51,8 @@ class SystemLock {
 
       const tick = async () => {
         try {
+          // オフライン時は通信を行わない
+          try { if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) { return; } } catch (_) {}
           const status = await GasAPI.getSystemLock();
           if (status && status.success && status.locked) {
             ensureGate();

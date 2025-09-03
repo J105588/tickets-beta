@@ -29,6 +29,68 @@ function logSync(message, details) {
   } catch (_) {}
 }
 
+// ===== IndexedDB ヘルパー（ローカルDB保存） =====
+let __idbPromise = null;
+function openOfflineDb() {
+  if (__idbPromise) return __idbPromise;
+  try {
+    __idbPromise = new Promise((resolve, reject) => {
+      const request = window.indexedDB ? indexedDB.open('ticketsOfflineDB', 1) : null;
+      if (!request) {
+        resolve(null);
+        return;
+      }
+      request.onupgradeneeded = (event) => {
+        try {
+          const db = event.target.result;
+          if (!db.objectStoreNames.contains('seatCache')) {
+            db.createObjectStore('seatCache', { keyPath: 'key' });
+          }
+          if (!db.objectStoreNames.contains('queue')) {
+            db.createObjectStore('queue', { keyPath: 'key' });
+          }
+        } catch (_) {}
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    });
+    return __idbPromise;
+  } catch (_) {
+    return Promise.resolve(null);
+  }
+}
+
+async function idbSet(storeName, key, value) {
+  try {
+    const db = await openOfflineDb();
+    if (!db) return false;
+    return await new Promise((resolve) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      store.put({ key, value });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    });
+  } catch (_) { return false; }
+}
+
+async function idbGet(storeName, key) {
+  try {
+    const db = await openOfflineDb();
+    if (!db) return null;
+    return await new Promise((resolve) => {
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      const req = store.get(key);
+      req.onsuccess = () => {
+        if (req.result && 'value' in req.result) resolve(req.result.value); else resolve(null);
+      };
+      req.onerror = () => resolve(null);
+    });
+  } catch (_) { return null; }
+}
+
 // ===== ユーティリティ =====
 function getKey(group, day, timeslot) {
   return `${STORAGE_PREFIX}:${encodeURIComponent(group)}:${encodeURIComponent(day)}:${encodeURIComponent(timeslot)}`;
@@ -40,7 +102,19 @@ function safeParse(json, fallback) {
 
 function readCache(group, day, timeslot) {
   const raw = localStorage.getItem(getKey(group, day, timeslot));
-  return safeParse(raw, null);
+  const parsed = safeParse(raw, null);
+  // localStorage に無ければ IndexedDB から非同期で復元（UIは同期的にnullで進行）
+  if (!parsed) {
+    try {
+      const key = getKey(group, day, timeslot);
+      idbGet('seatCache', key).then((val) => {
+        if (val) {
+          try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
+        }
+      });
+    } catch (_) {}
+  }
+  return parsed;
 }
 
 function writeCache(group, day, timeslot, data) {
@@ -50,6 +124,15 @@ function writeCache(group, day, timeslot, data) {
       seatMap: data && data.seatMap ? data.seatMap : data,
       cachedAt: Date.now()
     }));
+    // IndexedDB にも保存（非同期）
+    try {
+      const key = getKey(group, day, timeslot);
+      idbSet('seatCache', key, {
+        success: true,
+        seatMap: data && data.seatMap ? data.seatMap : data,
+        cachedAt: Date.now()
+      });
+    } catch (_) {}
     const meta = safeParse(localStorage.getItem(META_KEY), {});
     meta.lastCachedAt = Date.now();
     localStorage.setItem(META_KEY, JSON.stringify(meta));
@@ -61,11 +144,14 @@ function writeCache(group, day, timeslot, data) {
 }
 
 function readQueue() {
-  return safeParse(localStorage.getItem(QUEUE_KEY), []);
+  const parsed = safeParse(localStorage.getItem(QUEUE_KEY), []);
+  return Array.isArray(parsed) ? parsed : [];
 }
 
 function writeQueue(queue) {
   try { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue || [])); } catch (_) {}
+  // IndexedDB にも保存（非同期）
+  try { idbSet('queue', 'pending', Array.isArray(queue) ? queue : []); } catch (_) {}
 }
 
 function enqueue(operation) {
@@ -390,20 +476,7 @@ function onOffline() {
   try {
     installOfflineOverrides();
     stopBackgroundSync();
-    
-    // オフライン検知時にバックグラウンド同期用URLから最新データを取得
-    const params = new URLSearchParams(window.location.search);
-    const group = params.get('group');
-    const day = params.get('day');
-    const timeslot = params.get('timeslot');
-    
-    if (group && day && timeslot) {
-      fetchFromBackgroundSyncUrl(group, day, timeslot).then(data => {
-        if (data && data.success && data.seatMap) {
-          writeCache(group, day, timeslot, data);
-        }
-      }).catch(_ => {});
-    }
+    // オフライン時は一切の通信を行わない（バックグラウンドURL取得も停止）
   } catch (_) {}
 }
 

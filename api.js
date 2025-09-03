@@ -5,6 +5,8 @@ class GasAPI {
   static _callApi(functionName, params = []) {
     return new Promise((resolve, reject) => {
       try {
+        // オフライン時は一切通信しない
+        try { if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) { return resolve({ success: false, error: 'offline', offline: true }); } } catch (_) {}
         debugLog(`API Call (JSONP): ${functionName}`, params);
 
         const callbackName = 'jsonpCallback_' + functionName + '_' + Date.now();
@@ -112,6 +114,8 @@ class GasAPI {
   }
 
   static _reportError(errorMessage) {
+    // オフライン時は報告しない（通信しない）
+    try { if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) { return; } } catch (_) {}
     // エラー詳細をコンソールに出力
     console.error('API Error Details:', {
       message: errorMessage,
