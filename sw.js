@@ -1,5 +1,5 @@
 // sw.js - 最小限の静的資産キャッシュ（本体から独立）
-const CACHE_NAME = 'tickets-static-v1';
+const CACHE_NAME = 'tickets-static-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -41,11 +41,12 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(req).then(cached => {
       if (cached) return cached;
-      return fetch(req).then(res => {
-        const resClone = res.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(req, resClone)).catch(() => {});
-        return res;
-      }).catch(() => cached);
+      return fetch(req)
+        .then(res => {
+          try { const clone = res.clone(); caches.open(CACHE_NAME).then(c => c.put(req, clone)).catch(() => {}); } catch (_) {}
+          return res;
+        })
+        .catch(() => cached || new Response('', { status: 504 }));
     })
   );
 });
