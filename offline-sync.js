@@ -372,6 +372,9 @@ async function flushQueue() {
   const queue = readQueue();
   if (!queue.length) return;
 
+  // 同期中モーダルを表示
+  showSyncModal();
+
   const remaining = [];
   for (const item of queue) {
     try {
@@ -400,6 +403,36 @@ async function flushQueue() {
 
   // 成功した分は最新データを取得してキャッシュ更新
   try { await backgroundSyncCurrentContext(); } catch (_) {}
+
+  // 同期完了、モーダルを非表示
+  hideSyncModal();
+}
+
+// ===== 同期中モーダル制御 =====
+function showSyncModal() {
+  try {
+    // 既存のモーダルがあれば削除
+    const existing = document.getElementById('sync-modal');
+    if (existing) existing.remove();
+
+    const modalHTML = `
+      <div id="sync-modal" class="modal" style="display: block; z-index: 10000;">
+        <div class="modal-content" style="text-align: center; max-width: 400px;">
+          <div class="spinner"></div>
+          <h3>オフライン操作を同期中...</h3>
+          <p>しばらくお待ちください。操作はできません。</p>
+        </div>
+      </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+  } catch (_) {}
+}
+
+function hideSyncModal() {
+  try {
+    const modal = document.getElementById('sync-modal');
+    if (modal) modal.remove();
+  } catch (_) {}
 }
 
 // ===== バックグラウンド同期用URLへの同期要求 =====
@@ -525,7 +558,9 @@ window.OfflineSync = {
   getBackgroundSyncUrl: getBackgroundSyncUrl,
   flushQueue: flushQueue,
   readQueue: readQueue,
-  writeQueue: writeQueue
+  writeQueue: writeQueue,
+  showSyncModal: showSyncModal,
+  hideSyncModal: hideSyncModal
 };
 
 
