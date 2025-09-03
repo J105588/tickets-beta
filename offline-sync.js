@@ -1,877 +1,571 @@
-// offline-sync.js
-// 完全に独立したオフライン同期モジュール（本体に影響しないよう防御的に動作）
-// 役割:
-// - オンライン時: 座席データをローカルに定期同期（バックグラウンド）
-// - オフライン検知時: GasAPIの主要メソッドを安全に差し替え、ローカルデータで動作・更新はキューに保存
-// - 再接続時: キューを順次サーバーへ反映
+// ===============================================================
+// オフライン同期システム - 再設計版
+// ===============================================================
 
-import GasAPI from './api.js';
-import { BACKGROUND_SYNC_URL } from './config.js';
+// 定数定義
+const OFFLINE_FEATURE_ENABLED = true;
+const SYNC_INTERVAL_MS = 30000; // 30秒
+const MAX_RETRY_COUNT = 3;
+const RETRY_DELAY_MS = 5000; // 5秒
 
-// ===== 設定 =====
-const OFFLINE_FEATURE_ENABLED = true; // 必要なら遠隔で切替可能に
-const SYNC_INTERVAL_MS = 30 * 1000; // バックグラウンド同期間隔（30秒）
-const STORAGE_PREFIX = 'offlineSeats'; // localStorage キー接頭辞
-const QUEUE_KEY = `${STORAGE_PREFIX}:pendingQueue`;
-const META_KEY = `${STORAGE_PREFIX}:meta`;
-const BACKGROUND_SYNC_URL_KEY = `${STORAGE_PREFIX}:backgroundSyncUrl`;
-const ENABLE_SYNC_LOG = true;
+// ストレージキー
+const QUEUE_KEY = 'offlineQueue';
+const CACHE_KEY_PREFIX = 'seatCache_';
+const META_KEY = 'offlineMeta';
+const BACKGROUND_SYNC_URL_KEY = 'backgroundSyncUrl';
 
-function logSync(message, details) {
-  try {
-    if (!ENABLE_SYNC_LOG) return;
-    const ts = new Date().toISOString();
-    if (details !== undefined) {
-      console.log(`[OfflineSync ${ts}] ${message}`, details);
-    } else {
-      console.log(`[OfflineSync ${ts}] ${message}`);
-    }
-  } catch (_) {}
-}
+// オフライン状態管理クラス
+class OfflineStateManager {
+  constructor() {
+    this.isOnline = navigator.onLine;
+    this.syncInProgress = false;
+    this.retryCount = 0;
+    this.lastSyncAttempt = 0;
+    this.syncErrors = [];
+    
+    this.initializeEventListeners();
+  }
 
-// ===== IndexedDB ヘルパー（ローカルDB保存） =====
-let __idbPromise = null;
-function openOfflineDb() {
-  if (__idbPromise) return __idbPromise;
-  try {
-    __idbPromise = new Promise((resolve, reject) => {
-      const request = window.indexedDB ? indexedDB.open('ticketsOfflineDB', 1) : null;
-      if (!request) {
-        resolve(null);
-        return;
+  // イベントリスナーの初期化
+  initializeEventListeners() {
+    window.addEventListener('online', () => this.handleOnline());
+    window.addEventListener('offline', () => this.handleOffline());
+    
+    // 定期的な状態チェック
+    setInterval(() => this.checkConnectionStatus(), 10000);
+  }
+
+  // オンライン状態の処理
+  async handleOnline() {
+    if (this.isOnline) return; // 既にオンライン
+    
+    console.log('[状態管理] オンライン復帰を検知');
+    this.isOnline = true;
+    this.retryCount = 0;
+    
+    // オフライン操作の同期を開始
+    await this.syncOfflineOperations();
+  }
+
+  // オフライン状態の処理
+  async handleOffline() {
+    if (!this.isOnline) return; // 既にオフライン
+    
+    console.log('[状態管理] オフライン状態を検知');
+    this.isOnline = false;
+    this.syncInProgress = false;
+    
+    // オフライン操作モードに切り替え
+    await this.installOfflineOverrides();
+  }
+
+  // 接続状態のチェック
+  checkConnectionStatus() {
+    const currentOnline = navigator.onLine;
+    if (currentOnline !== this.isOnline) {
+      if (currentOnline) {
+        this.handleOnline();
+      } else {
+        this.handleOffline();
       }
-      request.onupgradeneeded = (event) => {
-        try {
-          const db = event.target.result;
-          if (!db.objectStoreNames.contains('seatCache')) {
-            db.createObjectStore('seatCache', { keyPath: 'key' });
-          }
-          if (!db.objectStoreNames.contains('queue')) {
-            db.createObjectStore('queue', { keyPath: 'key' });
-          }
-        } catch (_) {}
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-    });
-    return __idbPromise;
-  } catch (_) {
-    return Promise.resolve(null);
-  }
-}
-
-async function idbSet(storeName, key, value) {
-  try {
-    const db = await openOfflineDb();
-    if (!db) return false;
-    return await new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readwrite');
-      const store = tx.objectStore(storeName);
-      store.put({ key, value });
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => resolve(false);
-      tx.onabort = () => resolve(false);
-    });
-  } catch (_) { return false; }
-}
-
-async function idbGet(storeName, key) {
-  try {
-    const db = await openOfflineDb();
-    if (!db) return null;
-    return await new Promise((resolve) => {
-      const tx = db.transaction(storeName, 'readonly');
-      const store = tx.objectStore(storeName);
-      const req = store.get(key);
-      req.onsuccess = () => {
-        if (req.result && 'value' in req.result) resolve(req.result.value); else resolve(null);
-      };
-      req.onerror = () => resolve(null);
-    });
-  } catch (_) { return null; }
-}
-
-// ===== ユーティリティ =====
-function getKey(group, day, timeslot) {
-  return `${STORAGE_PREFIX}:${encodeURIComponent(group)}:${encodeURIComponent(day)}:${encodeURIComponent(timeslot)}`;
-}
-
-function safeParse(json, fallback) {
-  try { return JSON.parse(json); } catch (_) { return fallback; }
-}
-
-function readCache(group, day, timeslot) {
-  const raw = localStorage.getItem(getKey(group, day, timeslot));
-  const parsed = safeParse(raw, null);
-  // localStorage に無ければ IndexedDB から非同期で復元（UIは同期的にnullで進行）
-  if (!parsed) {
-    try {
-      const key = getKey(group, day, timeslot);
-      idbGet('seatCache', key).then((val) => {
-        if (val) {
-          try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
-        }
-      });
-    } catch (_) {}
-  }
-  return parsed;
-}
-
-function writeCache(group, day, timeslot, data) {
-  try {
-    localStorage.setItem(getKey(group, day, timeslot), JSON.stringify({
-      success: true,
-      seatMap: data && data.seatMap ? data.seatMap : data,
-      cachedAt: Date.now()
-    }));
-    // IndexedDB にも保存（非同期）
-    try {
-      const key = getKey(group, day, timeslot);
-      idbSet('seatCache', key, {
-        success: true,
-        seatMap: data && data.seatMap ? data.seatMap : data,
-        cachedAt: Date.now()
-      });
-    } catch (_) {}
-    const meta = safeParse(localStorage.getItem(META_KEY), {});
-    meta.lastCachedAt = Date.now();
-    localStorage.setItem(META_KEY, JSON.stringify(meta));
-    try {
-      const count = data && data.seatMap ? Object.keys(data.seatMap).length : 0;
-      logSync(`Cached seat data for ${group}-${day}-${timeslot} (count=${count})`);
-    } catch (_) {}
-  } catch (_) {}
-}
-
-function readQueue() {
-  const parsed = safeParse(localStorage.getItem(QUEUE_KEY), []);
-  return Array.isArray(parsed) ? parsed : [];
-}
-
-function writeQueue(queue) {
-  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(queue || [])); } catch (_) {}
-  // IndexedDB にも保存（非同期）
-  try { idbSet('queue', 'pending', Array.isArray(queue) ? queue : []); } catch (_) {}
-}
-
-function enqueue(operation) {
-  const q = readQueue();
-  // 競合検出用に前提状態（precondition）を含められるようにする
-  // operation: { type, args, pre?: { seatId -> {columnC,columnD,columnE,status} or arbitrary } }
-  q.push({ ...operation, enqueuedAt: Date.now() });
-  writeQueue(q);
-  
-  // オフライン操作をコンソールに出力
-  const timestamp = new Date().toLocaleString('ja-JP');
-  console.log(`[オフライン操作] ${timestamp}`, {
-    type: operation.type,
-    args: operation.args,
-    precondition: operation.pre,
-    queueLength: q.length
-  });
-}
-
-function isOffline() {
-  try { return !navigator.onLine; } catch (_) { return false; }
-}
-
-function getBackgroundSyncUrl() {
-  try {
-    return localStorage.getItem(BACKGROUND_SYNC_URL_KEY) || null;
-  } catch (_) { return null; }
-}
-
-function setBackgroundSyncUrl(url) {
-  try {
-    if (url) {
-      localStorage.setItem(BACKGROUND_SYNC_URL_KEY, url);
-    } else {
-      localStorage.removeItem(BACKGROUND_SYNC_URL_KEY);
     }
-  } catch (_) {}
-}
-
-// ===== バックグラウンド同期（オンライン時） =====
-async function backgroundSyncCurrentContext() {
-  try {
-    if (isOffline()) return;
-    const params = new URLSearchParams(window.location.search);
-    const group = params.get('group');
-    const day = params.get('day');
-    const timeslot = params.get('timeslot');
-    if (!group || !day || !timeslot) return; // 該当ページでない
-
-    // 通常は最小データで十分
-    logSync(`Background pre-sync start for ${group}-${day}-${timeslot}`);
-    const minimal = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
-    if (minimal && minimal.seatMap) {
-      writeCache(group, day, timeslot, minimal);
-    }
-    logSync(`Background pre-sync done for ${group}-${day}-${timeslot}`);
-  } catch (_) {
-    // 失敗しても本体に影響しない
-    logSync('Background pre-sync failed');
   }
-}
 
-// ===== バックグラウンド同期用URLからのデータ取得 =====
-async function fetchFromBackgroundSyncUrl(group, day, timeslot) {
-  try {
-    const backgroundUrl = getBackgroundSyncUrl();
-    if (!backgroundUrl) return null;
+  // オフライン操作の同期
+  async syncOfflineOperations() {
+    if (this.syncInProgress) {
+      console.log('[状態管理] 同期が既に進行中です');
+      return;
+    }
 
-    const callbackName = 'jsonpCallback_bgSync_' + Date.now();
-    const encodedParams = encodeURIComponent(JSON.stringify([group, day, timeslot, false]));
-    const url = `${backgroundUrl}?callback=${callbackName}&func=getSeatDataMinimal&params=${encodedParams}&_=${Date.now()}`;
+    const queue = this.readQueue();
+    if (queue.length === 0) {
+      console.log('[状態管理] 同期するオフライン操作がありません');
+      return;
+    }
 
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = true;
+    console.log(`[状態管理] ${queue.length}件のオフライン操作を同期開始`);
+    this.syncInProgress = true;
+    this.showSyncModal();
 
-      window[callbackName] = (data) => {
-        try {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve(data);
-        } catch (e) {
-          resolve(null);
+    try {
+      const result = await this.processQueue(queue);
+      console.log('[状態管理] 同期完了:', result);
+      
+      // 成功した操作をキューから削除
+      this.writeQueue(result.remaining);
+      
+      // キャッシュを更新
+      await this.refreshCache();
+      
+    } catch (error) {
+      console.error('[状態管理] 同期エラー:', error);
+      this.handleSyncError(error);
+    } finally {
+      this.syncInProgress = false;
+      this.hideSyncModal();
+    }
+  }
+
+  // キューの処理
+  async processQueue(queue) {
+    const remaining = [];
+    const processed = [];
+    const errors = [];
+
+    for (const item of queue) {
+      try {
+        console.log(`[状態管理] 処理中: ${item.type}`, item.args);
+        
+        const result = await this.executeOperation(item);
+        if (result.success) {
+          processed.push({ ...item, result });
+          console.log(`[状態管理] 成功: ${item.type}`);
+        } else {
+          remaining.push(item);
+          console.log(`[状態管理] 失敗: ${item.type} - ${result.error}`);
         }
-      };
+      } catch (error) {
+        console.error(`[状態管理] エラー: ${item.type}`, error);
+        errors.push({ ...item, error: error.message });
+        remaining.push(item);
+      }
+    }
 
-      script.onerror = () => {
-        try {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-        } catch (_) {}
-        resolve(null);
-      };
+    return {
+      processed,
+      remaining,
+      errors,
+      successCount: processed.length,
+      errorCount: errors.length
+    };
+  }
 
-      (document.head || document.body).appendChild(script);
+  // 個別操作の実行
+  async executeOperation(item) {
+    const { type, args } = item;
+    
+    try {
+      const gasAPI = await waitForGasAPI();
+      
+      switch (type) {
+        case 'reserveSeats':
+          return await gasAPI.reserveSeats(...args);
+        case 'checkInMultipleSeats':
+          return await gasAPI.checkInMultipleSeats(...args);
+        case 'updateSeatData':
+          return await gasAPI.updateSeatData(...args);
+        default:
+          return { success: false, error: `未知の操作タイプ: ${type}` };
+      }
+    } catch (error) {
+      console.error(`[状態管理] 操作実行エラー: ${type}`, error);
+      return { success: false, error: error.message };
+    }
+  }
 
-      // タイムアウト
+  // キャッシュの更新
+  async refreshCache() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const group = params.get('group');
+      const day = params.get('day');
+      const timeslot = params.get('timeslot');
+      
+      if (group && day && timeslot) {
+        console.log('[状態管理] キャッシュを更新中...');
+        const gasAPI = await waitForGasAPI();
+        const freshData = await gasAPI.getSeatDataMinimal(group, day, timeslot, false);
+        
+        if (freshData && freshData.success) {
+          this.writeCache(group, day, timeslot, freshData);
+          console.log('[状態管理] キャッシュ更新完了');
+        }
+      }
+    } catch (error) {
+      console.error('[状態管理] キャッシュ更新エラー:', error);
+    }
+  }
+
+  // エラーハンドリング
+  handleSyncError(error) {
+    this.syncErrors.push({
+      timestamp: Date.now(),
+      error: error.message,
+      retryCount: this.retryCount
+    });
+
+    if (this.retryCount < MAX_RETRY_COUNT) {
+      this.retryCount++;
+      console.log(`[状態管理] リトライ ${this.retryCount}/${MAX_RETRY_COUNT} を ${RETRY_DELAY_MS}ms後に実行`);
+      
       setTimeout(() => {
-        try {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-        } catch (_) {}
-        resolve(null);
-      }, 10000);
+        this.syncOfflineOperations();
+      }, RETRY_DELAY_MS);
+    } else {
+      console.error('[状態管理] 最大リトライ回数に達しました');
+      this.notifySyncFailure();
+    }
+  }
+
+  // 同期失敗の通知
+  notifySyncFailure() {
+    // ユーザーに同期失敗を通知
+    const notification = document.createElement('div');
+    notification.className = 'sync-failure-notification';
+    notification.innerHTML = `
+      <div class="notification-content">
+        <h4>同期エラー</h4>
+        <p>オフライン操作の同期に失敗しました。手動で同期を試してください。</p>
+        <button onclick="OfflineSync.retrySync()">再試行</button>
+        <button onclick="this.parentElement.parentElement.remove()">閉じる</button>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+  }
+
+  // オフライン操作の追加
+  addOfflineOperation(operation) {
+    const queue = this.readQueue();
+    const operationWithMeta = {
+      ...operation,
+      id: this.generateOperationId(),
+      timestamp: Date.now(),
+      retryCount: 0
+    };
+    
+    queue.push(operationWithMeta);
+    this.writeQueue(queue);
+    
+    console.log(`[状態管理] オフライン操作を追加: ${operation.type}`, operationWithMeta);
+    
+    // オフライン操作をコンソールに出力
+    this.logOfflineOperation(operationWithMeta);
+  }
+
+  // 操作IDの生成
+  generateOperationId() {
+    return `op_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  // オフライン操作のログ出力
+  logOfflineOperation(operation) {
+    const timestamp = new Date().toLocaleString('ja-JP');
+    console.log(`[オフライン操作] ${timestamp}`, {
+      id: operation.id,
+      type: operation.type,
+      args: operation.args,
+      precondition: operation.pre,
+      queueLength: this.readQueue().length
     });
-  } catch (_) {
+  }
+
+  // オフラインオーバーライドのインストール
+  async installOfflineOverrides() {
+    if (!OFFLINE_FEATURE_ENABLED) return;
+    
+    try {
+      const gasAPI = await waitForGasAPI();
+      if (!gasAPI) return;
+      
+      console.log('[状態管理] オフライン操作モードに切り替え');
+      
+      // GasAPIのメソッドをオフライン対応にオーバーライド
+      const originalReserveSeats = gasAPI.reserveSeats;
+      const originalCheckInMultipleSeats = gasAPI.checkInMultipleSeats;
+      const originalUpdateSeatData = gasAPI.updateSeatData;
+
+      // 予約のオフライン対応
+      gasAPI.reserveSeats = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalReserveSeats(...args);
+          } catch (error) {
+            console.log('[状態管理] オンライン予約失敗、オフライン操作として処理');
+            this.addOfflineOperation({ type: 'reserveSeats', args });
+            return { success: true, message: 'オフラインで予約を受け付けました', offline: true };
+          }
+        } else {
+          this.addOfflineOperation({ type: 'reserveSeats', args });
+          return { success: true, message: 'オフラインで予約を受け付けました', offline: true };
+        }
+      };
+
+      // チェックインのオフライン対応
+      gasAPI.checkInMultipleSeats = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalCheckInMultipleSeats(...args);
+          } catch (error) {
+            console.log('[状態管理] オンラインチェックイン失敗、オフライン操作として処理');
+            this.addOfflineOperation({ type: 'checkInMultipleSeats', args });
+            return { success: true, message: 'オフラインでチェックインを受け付けました', offline: true };
+          }
+        } else {
+          this.addOfflineOperation({ type: 'checkInMultipleSeats', args });
+          return { success: true, message: 'オフラインでチェックインを受け付けました', offline: true };
+        }
+      };
+
+      // 座席データ更新のオフライン対応
+      gasAPI.updateSeatData = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalUpdateSeatData(...args);
+          } catch (error) {
+            console.log('[状態管理] オンライン更新失敗、オフライン操作として処理');
+            this.addOfflineOperation({ type: 'updateSeatData', args });
+            return { success: true, message: 'オフラインで更新を受け付けました', offline: true };
+          }
+        } else {
+          this.addOfflineOperation({ type: 'updateSeatData', args });
+          return { success: true, message: 'オフラインで更新を受け付けました', offline: true };
+        }
+      };
+    } catch (error) {
+      console.error('[状態管理] オフラインオーバーライドのインストールに失敗:', error);
+    }
+  }
+
+  // 同期モーダルの表示
+  showSyncModal() {
+    try {
+      const existing = document.getElementById('sync-modal');
+      if (existing) existing.remove();
+
+      const modalHTML = `
+        <div id="sync-modal" class="modal" style="display: block; z-index: 10000;">
+          <div class="modal-content" style="text-align: center; max-width: 400px;">
+            <div class="spinner"></div>
+            <h3>オフライン操作を同期中...</h3>
+            <p>しばらくお待ちください。操作はできません。</p>
+            <div class="sync-progress">
+              <div class="progress-bar">
+                <div class="progress-fill"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.insertAdjacentHTML('beforeend', modalHTML);
+      console.log('[状態管理] 同期モーダルを表示');
+    } catch (error) {
+      console.error('[状態管理] モーダル表示エラー:', error);
+    }
+  }
+
+  // 同期モーダルの非表示
+  hideSyncModal() {
+    try {
+      const modal = document.getElementById('sync-modal');
+      if (modal) {
+        modal.remove();
+        console.log('[状態管理] 同期モーダルを非表示');
+      }
+    } catch (error) {
+      console.error('[状態管理] モーダル非表示エラー:', error);
+    }
+  }
+
+  // キューの読み取り
+  readQueue() {
+    try {
+      const data = localStorage.getItem(QUEUE_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('[状態管理] キュー読み取りエラー:', error);
+      return [];
+    }
+  }
+
+  // キューの書き込み
+  writeQueue(queue) {
+    try {
+      localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+    } catch (error) {
+      console.error('[状態管理] キュー書き込みエラー:', error);
+    }
+  }
+
+  // キャッシュの読み取り
+  readCache(group, day, timeslot) {
+    try {
+      const key = `${CACHE_KEY_PREFIX}${group}-${day}-${timeslot}`;
+      const data = localStorage.getItem(key);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error('[状態管理] キャッシュ読み取りエラー:', error);
+      return null;
+    }
+  }
+
+  // キャッシュの書き込み
+  writeCache(group, day, timeslot, data) {
+    try {
+      const key = `${CACHE_KEY_PREFIX}${group}-${day}-${timeslot}`;
+      const cacheData = {
+        ...data,
+        cachedAt: Date.now(),
+        version: '2.0' // 新しいバージョン番号
+      };
+      localStorage.setItem(key, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('[状態管理] キャッシュ書き込みエラー:', error);
+    }
+  }
+
+  // システムの初期化
+  initialize() {
+    console.log('[状態管理] オフラインシステムを初期化中...');
+    
+    // 初回: 現在ページの座席が未キャッシュなら最低限の雛形を用意
+    try {
+      const { group, day, timeslot } = this.readContext();
+      if (group && day && timeslot && !this.readCache(group, day, timeslot)) {
+        this.writeCache(group, day, timeslot, { seatMap: {} });
+      }
+    } catch (error) {
+      console.error('[状態管理] 初期化エラー:', error);
+    }
+
+    // オフライン状態の確認
+    if (!this.isOnline) {
+      this.handleOffline();
+    }
+
+    console.log('[状態管理] 初期化完了');
+  }
+
+  // コンテキストの読み取り
+  readContext() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        group: params.get('group'),
+        day: params.get('day'),
+        timeslot: params.get('timeslot')
+      };
+    } catch (error) {
+      console.error('[状態管理] コンテキスト読み取りエラー:', error);
+      return {};
+    }
+  }
+
+  // システムの状態を取得
+  getSystemStatus() {
+    return {
+      isOnline: this.isOnline,
+      syncInProgress: this.syncInProgress,
+      retryCount: this.retryCount,
+      lastSyncAttempt: this.lastSyncAttempt,
+      syncErrors: this.syncErrors,
+      queueLength: this.readQueue().length,
+      cacheInfo: this.getCacheInfo()
+    };
+  }
+
+  // キャッシュ情報の取得
+  getCacheInfo() {
+    const { group, day, timeslot } = this.readContext();
+    if (group && day && timeslot) {
+      const cache = this.readCache(group, day, timeslot);
+      return {
+        exists: !!cache,
+        cachedAt: cache ? cache.cachedAt : null,
+        version: cache ? cache.version : null,
+        seatCount: cache && cache.seatMap ? Object.keys(cache.seatMap).length : 0
+      };
+    }
     return null;
   }
 }
 
-let syncTimer = null;
-function startBackgroundSync() {
-  stopBackgroundSync();
-  syncTimer = setInterval(backgroundSyncCurrentContext, SYNC_INTERVAL_MS);
-}
-function stopBackgroundSync() { if (syncTimer) { clearInterval(syncTimer); syncTimer = null; } }
+// グローバルインスタンスの作成
+const offlineStateManager = new OfflineStateManager();
 
-// ===== オフライン時のGasAPI差し替え =====
-function installOfflineOverrides() {
-  if (!OFFLINE_FEATURE_ENABLED) return;
-  if (!GasAPI || typeof GasAPI !== 'function') return;
-
-  // 同じタブで二重に上書きしない
-  if (GasAPI.__offlineOverridden) return;
-
-  console.log('[オフライン設定] GasAPIをオフライン操作モードに切り替えます');
-
-  const original = {
-    getSeatData: GasAPI.getSeatData,
-    getSeatDataMinimal: GasAPI.getSeatDataMinimal,
-    reserveSeats: GasAPI.reserveSeats,
-    checkInMultipleSeats: GasAPI.checkInMultipleSeats,
-    updateSeatData: GasAPI.updateSeatData
-  };
-
-  function readContext() {
-    const p = new URLSearchParams(window.location.search);
-    return { group: p.get('group') || '見本演劇', day: p.get('day') || '1', timeslot: p.get('timeslot') || 'A' };
-  }
-
-  // 読み取り系
-  GasAPI.getSeatData = async (group, day, timeslot) => {
-    const cached = readCache(group, day, timeslot);
-    if (cached) return cached;
-    // キャッシュが無い場合でもオブジェクト形を返す
-    return { success: true, seatMap: {}, cachedAt: null, offline: true };
-  };
-  GasAPI.getSeatDataMinimal = async (group, day, timeslot) => {
-    const cached = readCache(group, day, timeslot);
-    if (cached) {
-      // 最小データに整形
-      const minimalMap = {};
-      const src = cached.seatMap || {};
-      Object.keys(src).forEach(id => { minimalMap[id] = { id, status: src[id].status || 'unavailable' }; });
-      return { success: true, seatMap: minimalMap, cachedAt: cached.cachedAt, offline: true };
-    }
-    return { success: true, seatMap: {}, cachedAt: null, offline: true };
-  };
-
-  // 書き込み系（ローカルへ反映し、キューへ追加）
-  GasAPI.reserveSeats = async (group, day, timeslot, selectedSeats) => {
-    const cached = readCache(group, day, timeslot) || { seatMap: {} };
-    (selectedSeats || []).forEach(id => {
-      cached.seatMap[id] = cached.seatMap[id] || { id };
-      cached.seatMap[id].status = 'reserved';
-      cached.seatMap[id].columnC = '予約済';
-      cached.seatMap[id].columnE = '';
-    });
-    writeCache(group, day, timeslot, cached);
-    // precondition: 予約対象がすべて available であること
-    const pre = {};
-    (selectedSeats || []).forEach(id => { const s = cached.seatMap[id] || {}; pre[id] = { status: 'available' }; });
-    enqueue({ type: 'reserveSeats', args: [group, day, timeslot, selectedSeats], pre });
-    return { success: true, message: `オフラインで予約を受け付けました (${(selectedSeats||[]).join(', ')})` };
-  };
-
-  GasAPI.checkInMultipleSeats = async (group, day, timeslot, seatIds) => {
-    const cached = readCache(group, day, timeslot) || { seatMap: {} };
-    (seatIds || []).forEach(id => {
-      cached.seatMap[id] = cached.seatMap[id] || { id };
-      cached.seatMap[id].status = 'checked-in';
-      cached.seatMap[id].columnE = '済';
-    });
-    writeCache(group, day, timeslot, cached);
-    // precondition: 対象が予約済または確保
-    const pre = {};
-    (seatIds || []).forEach(id => { pre[id] = { status: 'to-be-checked-in' } });
-    enqueue({ type: 'checkInMultipleSeats', args: [group, day, timeslot, seatIds], pre });
-    return { success: true, message: `${(seatIds||[]).length}件の座席をオフラインでチェックインしました。` };
-  };
-
-  GasAPI.updateSeatData = async (group, day, timeslot, seatId, columnC, columnD, columnE) => {
-    const cached = readCache(group, day, timeslot) || { seatMap: {} };
-    cached.seatMap[seatId] = cached.seatMap[seatId] || { id: seatId };
-    if (columnC !== undefined) cached.seatMap[seatId].columnC = columnC;
-    if (columnD !== undefined) cached.seatMap[seatId].columnD = columnD;
-    if (columnE !== undefined) cached.seatMap[seatId].columnE = columnE;
-    // 状態推定
-    const c = cached.seatMap[seatId].columnC || '';
-    const e = cached.seatMap[seatId].columnE || '';
-    let status = 'unavailable';
-    if (c === '予約済' && e === '済') status = 'checked-in';
-    else if (c === '予約済') status = 'to-be-checked-in';
-    else if (c === '確保') status = 'reserved';
-    else if (c === '空' || c === '') status = 'available';
-    cached.seatMap[seatId].status = status;
-    writeCache(group, day, timeslot, cached);
-    // precondition: 現在のキャッシュ状態を送る（GAS側で比較）
-    const pre = {}; pre[seatId] = { columnC: cached.seatMap[seatId].columnC || '', columnD: cached.seatMap[seatId].columnD || '', columnE: cached.seatMap[seatId].columnE || '' };
-    enqueue({ type: 'updateSeatData', args: [group, day, timeslot, seatId, columnC, columnD, columnE], pre });
-    return { success: true, message: 'オフラインで座席データを更新しました' };
-  };
-
-  GasAPI.__offlineOverridden = true;
-
-  // 初回: 現在ページの座席が未キャッシュなら最低限の雛形を用意
-  try {
-    const { group, day, timeslot } = readContext();
-    if (!readCache(group, day, timeslot)) {
-      writeCache(group, day, timeslot, { seatMap: {} });
-    }
-  } catch (_) {}
-}
-
-// ===== 再接続時: キューをサーバーへ反映 =====
-async function flushQueue() {
-  if (isOffline()) return;
-  const queue = readQueue();
-  if (!queue.length) return;
-
-  console.log(`[同期開始] ${queue.length}件のオフライン操作を同期します...`);
-  
-  // 同期中モーダルを表示
-  showSyncModal();
-
-  const remaining = [];
-  for (const item of queue) {
-    try {
-      const { type, args } = item;
-      console.log(`[同期処理] ${type} を実行中...`, args);
-      logSync(`Flush op start: ${type}`);
-      let res = null;
-      if (type === 'reserveSeats') {
-        console.log(`[同期処理] GasAPI.reserveSeats を呼び出し中...`, args);
-        res = await GasAPI.reserveSeats(...args);
-        console.log(`[GAS応答] reserveSeats:`, res);
-        console.log(`[GAS応答詳細] 成功: ${res?.success}, メッセージ: ${res?.message}, エラー: ${res?.error}`);
-        
-        if (!res || res.success === false) {
-          console.error(`[同期失敗] reserveSeats が失敗しました:`, res);
-          throw new Error(res && (res.error || res.message) || 'reserve failed');
-        }
-        console.log(`[同期成功] ${type} 完了`);
-      } else if (type === 'checkInMultipleSeats') {
-        console.log(`[同期処理] GasAPI.checkInMultipleSeats を呼び出し中...`, args);
-        res = await GasAPI.checkInMultipleSeats(...args);
-        console.log(`[GAS応答] checkInMultipleSeats:`, res);
-        console.log(`[GAS応答詳細] 成功: ${res?.success}, メッセージ: ${res?.message}, エラー: ${res?.error}`);
-        
-        if (!res || res.success === false) {
-          console.error(`[同期失敗] checkInMultipleSeats が失敗しました:`, res);
-          throw new Error(res && (res.error || res.message) || 'checkin failed');
-        }
-        console.log(`[同期成功] ${type} 完了`);
-      } else if (type === 'updateSeatData') {
-        console.log(`[同期処理] GasAPI.updateSeatData を呼び出し中...`, args);
-        res = await GasAPI.updateSeatData(...args);
-        console.log(`[GAS応答] updateSeatData:`, res);
-        console.log(`[GAS応答詳細] 成功: ${res?.success}, メッセージ: ${res?.message}, エラー: ${res?.error}`);
-        
-        if (!res || res.success === false) {
-          console.error(`[同期失敗] updateSeatData が失敗しました:`, res);
-          throw new Error(res && (res.error || res.message) || 'update failed');
-        }
-        console.log(`[同期成功] ${type} 完了`);
+// GasAPIが利用可能になるまで待機する関数
+function waitForGasAPI() {
+  return new Promise((resolve) => {
+    const checkAPI = () => {
+      if (window.GasAPI) {
+        resolve(window.GasAPI);
       } else {
-        // 未知タイプは保持
-        remaining.push(item);
-        console.log(`[同期スキップ] 未知の操作タイプ: ${type}`);
+        setTimeout(checkAPI, 100);
       }
-      logSync(`Flush op done: ${type}`);
-    } catch (error) {
-      // 失敗したものは残す（順序維持）
-      console.error(`[同期失敗] ${item.type} でエラー:`, error.message);
-      remaining.push(item);
-    }
-  }
-  writeQueue(remaining);
-
-  console.log(`[同期完了] 成功: ${queue.length - remaining.length}件, 失敗: ${remaining.length}件`);
-
-  // 成功した分は最新データを取得してキャッシュ更新
-  try { 
-    console.log('[同期後] 最新データを取得してキャッシュを更新中...');
-    await backgroundSyncCurrentContext(); 
-    console.log('[同期後] キャッシュ更新完了');
-  } catch (error) {
-    console.error('[同期後] キャッシュ更新失敗:', error);
-  }
-
-  // 同期完了、モーダルを非表示
-  hideSyncModal();
+    };
+    checkAPI();
+  });
 }
 
-// ===== 同期中モーダル制御 =====
-function showSyncModal() {
-  try {
-    console.log('[同期モーダル] 表示開始...');
-    
-    // 既存のモーダルがあれば削除
-    const existing = document.getElementById('sync-modal');
-    if (existing) {
-      console.log('[同期モーダル] 既存モーダルを削除');
-      existing.remove();
-    }
-
-    const modalHTML = `
-      <div id="sync-modal" class="modal" style="display: block; z-index: 10000;">
-        <div class="modal-content" style="text-align: center; max-width: 400px;">
-          <div class="spinner"></div>
-          <h3>オフライン操作を同期中...</h3>
-          <p>しばらくお待ちください。操作はできません。</p>
-        </div>
-      </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-    console.log('[同期モーダル] モーダルを挿入完了');
-    
-    // モーダルが実際に表示されているか確認
-    const modal = document.getElementById('sync-modal');
-    if (modal) {
-      console.log('[同期モーダル] モーダル要素確認OK:', modal);
-      // 強制的に表示
-      modal.style.display = 'block';
-      modal.style.visibility = 'visible';
-      modal.style.opacity = '1';
-      
-      // DOMの状態を確認
-      console.log('[同期モーダル] DOM状態:', {
-        display: modal.style.display,
-        visibility: modal.style.visibility,
-        opacity: modal.style.opacity,
-        zIndex: modal.style.zIndex,
-        parentNode: modal.parentNode,
-        bodyChildren: document.body.children.length
-      });
-    } else {
-      console.error('[同期モーダル] モーダル要素が見つかりません');
-    }
-  } catch (error) {
-    console.error('[同期モーダル] 表示エラー:', error);
-  }
-}
-
-function hideSyncModal() {
-  try {
-    console.log('[同期モーダル] 非表示開始...');
-    const modal = document.getElementById('sync-modal');
-    if (modal) {
-      modal.remove();
-      console.log('[同期モーダル] モーダルを削除完了');
-    } else {
-      console.log('[同期モーダル] 削除対象のモーダルが見つかりません');
-    }
-  } catch (error) {
-    console.error('[同期モーダル] 非表示エラー:', error);
-  }
-}
-
-// ===== バックグラウンド同期用URLへの同期要求 =====
-async function syncToBackgroundUrl(group, day, timeslot, operations) {
-  try {
-    const backgroundUrl = getBackgroundSyncUrl();
-    if (!backgroundUrl || !operations.length) return false;
-
-    const callbackName = 'jsonpCallback_sync_' + Date.now();
-    const encodedParams = encodeURIComponent(JSON.stringify([group, day, timeslot, operations]));
-    const url = `${backgroundUrl}?callback=${callbackName}&func=syncOfflineOperations&params=${encodedParams}&_=${Date.now()}`;
-    logSync(`Request sync to background URL for ${group}-${day}-${timeslot}`, { operations: operations.length });
-
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.src = url;
-      script.async = true;
-
-      window[callbackName] = (data) => {
-        try {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-          resolve(data && data.success === true);
-        } catch (e) {
-          resolve(false);
-        }
-      };
-
-      script.onerror = () => {
-        try {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-        } catch (_) {}
-        resolve(false);
-      };
-
-      (document.head || document.body).appendChild(script);
-
-      // タイムアウト
-      setTimeout(() => {
-        try {
-          delete window[callbackName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-        } catch (_) {}
-        resolve(false);
-      }, 15000);
-    });
-  } catch (_) {
-    return false;
-  }
-}
-
-// ===== Service Worker 登録（静的資産キャッシュ） =====
-function registerServiceWorker() {
-  try {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js');
-    }
-  } catch (_) {}
-}
-
-// ===== イベント =====
-function onOnline() {
-  // 本体の動作に影響させない
-  try {
-    console.log('[オンライン復帰] オフライン操作の同期を開始します...');
-    
-    // 元のGasAPIを自然に使用できるよう、差し替えは解除しない（安全策）。
-    // 代わりにキュー反映とバックグラウンド同期のみ行う。
-    flushQueue();
-    startBackgroundSync();
-  } catch (_) {}
-}
-
-function onOffline() {
-  try {
-    console.log('[オフライン検知] オフライン操作モードに切り替えます');
-    installOfflineOverrides();
-    stopBackgroundSync();
-    // オフライン時は一切の通信を行わない（バックグラウンドURL取得も停止）
-  } catch (_) {}
-}
-
-// ===== 初期化 =====
-function __offlineSyncBoot() {
-  if (!OFFLINE_FEATURE_ENABLED) return;
-
-  // Service Worker の登録は読み込み完了後に実施
-  try { registerServiceWorker(); } catch (_) {}
-
-  // バックグラウンド同期用URLを設定
-  if (BACKGROUND_SYNC_URL) {
-    setBackgroundSyncUrl(BACKGROUND_SYNC_URL);
-  }
-
-  // 初期状態に応じて、バックグラウンドで開始
-  if (isOffline()) {
-    // オフライン時は差し替えのみ行い、以降はイベントで反応
-    try { installOfflineOverrides(); } catch (_) {}
-  } else {
-    // オンライン時はバックグラウンド同期間隔起動＋一度だけの同期
-    try { startBackgroundSync(); } catch (_) {}
-    try { setTimeout(backgroundSyncCurrentContext, 0); } catch (_) {}
-  }
-
-  // オンライン/オフラインイベントハンドラ（非同期で処理）
-  window.addEventListener('online', () => { setTimeout(onOnline, 0); });
-  window.addEventListener('offline', () => { setTimeout(onOffline, 0); });
-}
-
-// 画面ロード完了後、アイドル時間に初期化（フォールバックあり）
-const __scheduleInit = () => {
-  const ric = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0); };
-  ric(__offlineSyncBoot);
-};
-
-if (document.readyState === 'complete') {
-  __scheduleInit();
-} else {
-  window.addEventListener('load', __scheduleInit);
-}
-
-// ===== グローバル関数（設定用） =====
+// グローバル関数（設定用）
 window.OfflineSync = {
-  setBackgroundSyncUrl: setBackgroundSyncUrl,
-  getBackgroundSyncUrl: getBackgroundSyncUrl,
-  flushQueue: flushQueue,
-  readQueue: readQueue,
-  writeQueue: writeQueue,
-  showSyncModal: showSyncModal,
-  hideSyncModal: hideSyncModal,
-  // デバッグ用関数
-  testGASConnection: async () => {
-    try {
-      console.log('[デバッグ] GAS接続テスト開始...');
-      const testResult = await GasAPI.testApi();
-      console.log('[デバッグ] GAS接続テスト結果:', testResult);
-      return testResult;
-    } catch (error) {
-      console.error('[デバッグ] GAS接続テスト失敗:', error);
-      return { success: false, error: error.message };
+  // 状態管理
+  getStatus: () => offlineStateManager.getSystemStatus(),
+  
+  // 同期制御
+  sync: () => offlineStateManager.syncOfflineOperations(),
+  retrySync: () => offlineStateManager.syncOfflineOperations(),
+  
+  // キュー管理
+  getQueue: () => offlineStateManager.readQueue(),
+  clearQueue: () => offlineStateManager.writeQueue([]),
+  
+  // キャッシュ管理
+  getCache: () => offlineStateManager.getCacheInfo(),
+  clearCache: () => {
+    const { group, day, timeslot } = offlineStateManager.readContext();
+    if (group && day && timeslot) {
+      localStorage.removeItem(`${CACHE_KEY_PREFIX}${group}-${day}-${timeslot}`);
+      console.log('[OfflineSync] キャッシュをクリアしました');
     }
   },
-  // スプレッドシート構造をデバッグ
-  debugSpreadsheetStructure: async () => {
+  
+  // デバッグ機能
+  debug: async () => {
+    console.log('[OfflineSync] システム状態:', offlineStateManager.getSystemStatus());
+    
+    // GAS接続テスト
     try {
-      const params = new URLSearchParams(window.location.search);
-      const group = params.get('group');
-      const day = params.get('day');
-      const timeslot = params.get('timeslot');
+      const gasAPI = await waitForGasAPI();
+      const testResult = await gasAPI.testApi();
+      console.log('[OfflineSync] GAS接続テスト:', testResult);
+    } catch (error) {
+      console.error('[OfflineSync] GAS接続テスト失敗:', error);
+    }
+    
+    // 現在の座席データを取得
+    try {
+      const gasAPI = await waitForGasAPI();
+      const { group, day, timeslot } = offlineStateManager.readContext();
       if (group && day && timeslot) {
-        console.log('[デバッグ] スプレッドシート構造確認開始...', { group, day, timeslot });
-        
-        // まず、既存の関数でスプレッドシートの状態を確認
-        try {
-          console.log('[デバッグ] getSeatDataMinimal で現在の座席データを取得中...');
-          const seatData = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
-          console.log('[デバッグ] 現在の座席データ:', seatData);
-          
-          if (seatData && seatData.success && seatData.seatMap) {
-            const reservedSeats = Object.entries(seatData.seatMap)
-              .filter(([id, seat]) => seat.status === 'to-be-checked-in' || seat.status === 'checked-in')
-              .map(([id, seat]) => ({ id, status: seat.status }));
-            
-            console.log('[デバッグ] 予約済み座席:', reservedSeats);
-          }
-        } catch (error) {
-          console.error('[デバッグ] getSeatDataMinimal 失敗:', error);
-        }
-        
-        // debugSpreadsheetStructure関数が利用可能かテスト
-        try {
-          const result = await GasAPI.debugSpreadsheetStructure(group, day, timeslot);
-          console.log('[デバッグ] スプレッドシート構造:', result);
-          return result;
-        } catch (error) {
-          console.log('[デバッグ] debugSpreadsheetStructure は利用できません。既存の関数で調査を続行します。');
-          
-          // 代替手段: 基本的な情報を収集
-          return {
-            success: true,
-            message: 'debugSpreadsheetStructure は利用できませんが、基本的な調査は完了しました',
-            group, day, timeslot,
-            availableFunctions: ['getSeatDataMinimal', 'testApi']
-          };
-        }
+        const seatData = await gasAPI.getSeatDataMinimal(group, day, timeslot, false);
+        console.log('[OfflineSync] 現在の座席データ:', seatData);
       }
-      return { success: false, error: 'URLパラメータが不足しています' };
     } catch (error) {
-      console.error('[デバッグ] スプレッドシート構造確認失敗:', error);
-      return { success: false, error: error.message };
-    }
-  },
-  // 手動で同期を実行
-  manualSync: async () => {
-    try {
-      console.log('[手動同期] 開始...');
-      await flushQueue();
-      console.log('[手動同期] 完了');
-    } catch (error) {
-      console.error('[手動同期] 失敗:', error);
-    }
-  },
-  // 包括的なデバッグ実行
-  comprehensiveDebug: async () => {
-    try {
-      console.log('[包括的デバッグ] 開始...');
-      
-      // 1. GAS接続テスト
-      console.log('[デバッグ] 1. GAS接続テスト...');
-      const connectionTest = await OfflineSync.testGASConnection();
-      console.log('[デバッグ] GAS接続テスト結果:', connectionTest);
-      
-      // 2. スプレッドシート構造確認
-      console.log('[デバッグ] 2. スプレッドシート構造確認...');
-      const structureTest = await OfflineSync.debugSpreadsheetStructure();
-      console.log('[デバッグ] スプレッドシート構造確認結果:', structureTest);
-      
-      // 3. 現在のキャッシュ状態確認
-      console.log('[デバッグ] 3. キャッシュ状態確認...');
-      const cacheStatus = OfflineSync.showCacheStatus();
-      console.log('[デバッグ] キャッシュ状態:', cacheStatus);
-      
-      // 4. キュー状態確認
-      const queue = readQueue();
-      console.log('[デバッグ] 4. キュー状態:', {
-        length: queue.length,
-        items: queue.map(item => ({
-          type: item.type,
-          args: item.args,
-          enqueuedAt: new Date(item.enqueuedAt).toLocaleString('ja-JP')
-        }))
-      });
-      
-      console.log('[包括的デバッグ] 完了');
-      
-      return {
-        connectionTest,
-        structureTest,
-        cacheStatus,
-        queueLength: queue.length
-      };
-    } catch (error) {
-      console.error('[包括的デバッグ] 失敗:', error);
-      return { success: false, error: error.message };
-    }
-  },
-  // GAS APIの直接テスト
-  testGASDirectly: async () => {
-    try {
-      console.log('[GAS直接テスト] 開始...');
-      
-      const params = new URLSearchParams(window.location.search);
-      const group = params.get('group');
-      const day = params.get('day');
-      const timeslot = params.get('timeslot');
-      
-      if (!group || !day || !timeslot) {
-        return { success: false, error: 'URLパラメータが不足しています' };
-      }
-      
-      console.log('[GAS直接テスト] パラメータ:', { group, day, timeslot });
-      
-      // 1. 現在の座席データを取得
-      console.log('[GAS直接テスト] 1. 現在の座席データを取得...');
-      const currentData = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
-      console.log('[GAS直接テスト] 現在の座席データ:', currentData);
-      
-      // 2. テスト用の予約を実行（実際の座席IDを使用）
-      if (currentData && currentData.success && currentData.seatMap) {
-        const availableSeats = Object.entries(currentData.seatMap)
-          .filter(([id, seat]) => seat.status === 'available')
-          .slice(0, 1) // 最初の1つの空席のみ
-          .map(([id, seat]) => id);
-        
-        if (availableSeats.length > 0) {
-          console.log('[GAS直接テスト] 2. テスト予約を実行...', { testSeats: availableSeats });
-          
-          // テスト用の予約を実行
-          const testReservation = await GasAPI.reserveSeats(group, day, timeslot, availableSeats);
-          console.log('[GAS直接テスト] テスト予約結果:', testReservation);
-          
-          // 3. 予約後の座席データを再取得
-          if (testReservation && testReservation.success) {
-            console.log('[GAS直接テスト] 3. 予約後の座席データを再取得...');
-            const updatedData = await GasAPI.getSeatDataMinimal(group, day, timeslot, false);
-            console.log('[GAS直接テスト] 更新後の座席データ:', updatedData);
-            
-            // 変更があったかを確認
-            const changes = [];
-            if (updatedData && updatedData.success && updatedData.seatMap) {
-              availableSeats.forEach(seatId => {
-                const before = currentData.seatMap[seatId];
-                const after = updatedData.seatMap[seatId];
-                if (before && after && before.status !== after.status) {
-                  changes.push({
-                    seatId,
-                    before: before.status,
-                    after: after.status
-                  });
-                }
-              });
-            }
-            
-            console.log('[GAS直接テスト] 変更内容:', changes);
-            
-            return {
-              success: true,
-              testSeats: availableSeats,
-              reservationResult: testReservation,
-              changes: changes,
-              before: currentData,
-              after: updatedData
-            };
-          }
-        } else {
-          console.log('[GAS直接テスト] 空席が見つかりません');
-        }
-      }
-      
-      return { success: false, error: 'テスト用の空席が見つかりません' };
-      
-    } catch (error) {
-      console.error('[GAS直接テスト] 失敗:', error);
-      return { success: false, error: error.message };
-    }
-  },
-  // 現在のキャッシュ状態を表示
-  showCacheStatus: () => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const group = params.get('group');
-      const day = params.get('day');
-      const timeslot = params.get('timeslot');
-      if (group && day && timeslot) {
-        const cache = readCache(group, day, timeslot);
-        const queue = readQueue();
-        console.log('[キャッシュ状態]', {
-          group, day, timeslot,
-          cache: cache ? 'あり' : 'なし',
-          queueLength: queue.length,
-          queue: queue
-        });
-        return { cache, queue };
-      }
-      return null;
-    } catch (error) {
-      console.error('[キャッシュ状態確認失敗]:', error);
-      return null;
+      console.error('[OfflineSync] 座席データ取得失敗:', error);
     }
   }
 };
+
+// システムの初期化
+document.addEventListener('DOMContentLoaded', () => {
+  offlineStateManager.initialize();
+});
+
+// 既存の関数との互換性を保つ
+function isOffline() { return !offlineStateManager.isOnline; }
+async function onOnline() { await offlineStateManager.handleOnline(); }
+async function onOffline() { await offlineStateManager.handleOffline(); }
+async function flushQueue() { await offlineStateManager.syncOfflineOperations(); }
+function showSyncModal() { offlineStateManager.showSyncModal(); }
+function hideSyncModal() { offlineStateManager.hideSyncModal(); }
+function readQueue() { return offlineStateManager.readQueue(); }
+function writeQueue(queue) { offlineStateManager.writeQueue(queue); }
+function readCache(group, day, timeslot) { return offlineStateManager.readCache(group, day, timeslot); }
+function writeCache(group, day, timeslot, data) { offlineStateManager.writeCache(group, day, timeslot, data); }
+function enqueue(operation) { offlineStateManager.addOfflineOperation(operation); }
+async function installOfflineOverrides() { await offlineStateManager.installOfflineOverrides(); }
 
 
