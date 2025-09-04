@@ -464,29 +464,39 @@ class OfflineOperationManager {
       let result;
       switch (type) {
         case OPERATION_TYPES.RESERVE_SEATS:
-          console.log(`[OfflineSync] reserveSeats呼び出し開始`);
-          result = await gasAPI.reserveSeats(...args);
-          console.log(`[OfflineSync] reserveSeats呼び出し完了`);
+          console.log(`[OfflineSync] reserveSeats呼び出し開始(オリジナル)`);
+          result = this.originalMethods && this.originalMethods.reserveSeats
+            ? await this.originalMethods.reserveSeats(...args)
+            : await gasAPI.reserveSeats(...args);
+          console.log(`[OfflineSync] reserveSeats呼び出し完了(オリジナル)`);
           break;
         case OPERATION_TYPES.CHECK_IN_SEATS:
-          console.log(`[OfflineSync] checkInMultipleSeats呼び出し開始`);
-          result = await gasAPI.checkInMultipleSeats(...args);
-          console.log(`[OfflineSync] checkInMultipleSeats呼び出し完了`);
+          console.log(`[OfflineSync] checkInMultipleSeats呼び出し開始(オリジナル)`);
+          result = this.originalMethods && this.originalMethods.checkInMultipleSeats
+            ? await this.originalMethods.checkInMultipleSeats(...args)
+            : await gasAPI.checkInMultipleSeats(...args);
+          console.log(`[OfflineSync] checkInMultipleSeats呼び出し完了(オリジナル)`);
           break;
         case OPERATION_TYPES.UPDATE_SEAT_DATA:
-          console.log(`[OfflineSync] updateSeatData呼び出し開始`);
-          result = await gasAPI.updateSeatData(...args);
-          console.log(`[OfflineSync] updateSeatData呼び出し完了`);
+          console.log(`[OfflineSync] updateSeatData呼び出し開始(オリジナル)`);
+          result = this.originalMethods && this.originalMethods.updateSeatData
+            ? await this.originalMethods.updateSeatData(...args)
+            : await gasAPI.updateSeatData(...args);
+          console.log(`[OfflineSync] updateSeatData呼び出し完了(オリジナル)`);
           break;
         case OPERATION_TYPES.ASSIGN_WALKIN:
-          console.log(`[OfflineSync] assignWalkInSeats呼び出し開始`);
-          result = await gasAPI.assignWalkInSeats(...args);
-          console.log(`[OfflineSync] assignWalkInSeats呼び出し完了`);
+          console.log(`[OfflineSync] assignWalkInSeats呼び出し開始(オリジナル)`);
+          result = this.originalMethods && this.originalMethods.assignWalkInSeats
+            ? await this.originalMethods.assignWalkInSeats(...args)
+            : await gasAPI.assignWalkInSeats(...args);
+          console.log(`[OfflineSync] assignWalkInSeats呼び出し完了(オリジナル)`);
           break;
         case OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE:
-          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し開始`);
-          result = await gasAPI.assignWalkInConsecutiveSeats(...args);
-          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し完了`);
+          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し開始(オリジナル)`);
+          result = this.originalMethods && this.originalMethods.assignWalkInConsecutiveSeats
+            ? await this.originalMethods.assignWalkInConsecutiveSeats(...args)
+            : await gasAPI.assignWalkInConsecutiveSeats(...args);
+          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し完了(オリジナル)`);
           break;
         default:
           result = { success: false, error: `未知の操作タイプ: ${type}` };
@@ -657,12 +667,14 @@ class OfflineOperationManager {
       
       // 元のメソッドを保存
       const originalMethods = {
-        reserveSeats: gasAPI.reserveSeats,
-        checkInMultipleSeats: gasAPI.checkInMultipleSeats,
-        updateSeatData: gasAPI.updateSeatData,
-        assignWalkInSeats: gasAPI.assignWalkInSeats,
-        assignWalkInConsecutiveSeats: gasAPI.assignWalkInConsecutiveSeats
+        reserveSeats: gasAPI.reserveSeats.bind(gasAPI),
+        checkInMultipleSeats: gasAPI.checkInMultipleSeats.bind(gasAPI),
+        updateSeatData: gasAPI.updateSeatData.bind(gasAPI),
+        assignWalkInSeats: gasAPI.assignWalkInSeats.bind(gasAPI),
+        assignWalkInConsecutiveSeats: gasAPI.assignWalkInConsecutiveSeats.bind(gasAPI)
       };
+      // インスタンスに保持（同期時にオリジナルを使用）
+      this.originalMethods = originalMethods;
 
       // 予約のオフライン対応
       gasAPI.reserveSeats = async (...args) => {
