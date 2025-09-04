@@ -228,7 +228,20 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 10003;
+  z-index: 10010;
+  opacity: 0;
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 #queue-status-modal .modal-content {
@@ -240,6 +253,19 @@
   width: 90%;
   max-height: 80vh;
   overflow-y: auto;
+  transform: translateY(20px);
+  animation: slideUp 0.4s ease-out 0.1s forwards;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 #queue-status-modal h3 {
@@ -287,6 +313,27 @@
   margin-bottom: 10px;
   font-size: 0.9em;
   line-height: 1.4;
+  opacity: 0;
+  transform: translateX(-20px);
+  animation: slideInLeft 0.3s ease-out forwards;
+}
+
+.queue-item:nth-child(1) { animation-delay: 0.1s; }
+.queue-item:nth-child(2) { animation-delay: 0.2s; }
+.queue-item:nth-child(3) { animation-delay: 0.3s; }
+.queue-item:nth-child(4) { animation-delay: 0.4s; }
+.queue-item:nth-child(5) { animation-delay: 0.5s; }
+.queue-item:nth-child(n+6) { animation-delay: 0.6s; }
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .queue-item strong {
@@ -525,7 +572,7 @@
   z-index: 10006;
   width: 44px;
   height: 44px;
-  background: rgba(128, 128, 128, 0.6);
+  background: rgba(128, 128, 128, 0.8);
   color: #fff;
   border: none;
   border-radius: 50%;
@@ -543,7 +590,7 @@
 
 .global-settings-button:active {
   transform: scale(1) rotate(0deg);
-  background: rgba(64, 64, 64, 0.8);
+  background: rgba(64, 64, 64, 0.9);
 }
 
 /* オフライン同期コントロール */
@@ -660,11 +707,11 @@
   }
   
   .global-settings-button {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(128, 128, 128, 0.7);
   }
   
   .global-settings-button:hover {
-    background: rgba(255, 255, 255, 0.4);
+    background: rgba(64, 64, 64, 0.9);
   }
   
   .offline-sync-card-modal {
