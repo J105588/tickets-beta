@@ -846,53 +846,26 @@ class OfflineOperationManager {
       const existing = document.getElementById('sync-modal-v2');
       if (existing) existing.remove();
 
-      // モーダルを直接DOM要素として作成
-      const modal = document.createElement('div');
-      modal.id = 'sync-modal-v2';
-      modal.style.position = 'fixed';
-      modal.style.top = '0';
-      modal.style.left = '0';
-      modal.style.width = '100%';
-      modal.style.height = '100%';
-      modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-      modal.style.display = 'flex';
-      modal.style.justifyContent = 'center';
-      modal.style.alignItems = 'center';
-      modal.style.zIndex = '10000';
-      
-      modal.innerHTML = `
-        <div class="modal-content" style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); text-align: center; max-width: 450px; width: 90%;">
-          <div class="spinner" style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px auto;"></div>
-          <h3 style="margin: 0 0 15px 0; color: #333; font-size: 1.4em;">オフライン操作を同期中...</h3>
-          <p style="margin: 0 0 20px 0; color: #666; line-height: 1.5;">しばらくお待ちください。操作はできません。</p>
-          <div class="sync-progress" style="margin: 20px 0;">
-            <div class="progress-bar" style="width: 100%; height: 8px; background-color: #f0f0f0; border-radius: 4px; overflow: hidden;">
-              <div class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71); width: 0%; animation: progress 2s ease-in-out infinite; border-radius: 4px;"></div>
+      const modalHTML = `
+        <div id="sync-modal-v2">
+          <div class="modal-content">
+            <div class="spinner"></div>
+            <h3>オフライン操作を同期中...</h3>
+            <p>しばらくお待ちください。操作はできません。</p>
+            <div class="sync-progress">
+              <div class="progress-bar">
+                <div class="progress-fill"></div>
+              </div>
             </div>
-          </div>
-          <div class="sync-status" style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; border-left: 4px solid #3498db;">
-            <p style="margin: 0; font-size: 0.9em; color: #555;">同期状況: <span id="sync-status-text" style="font-weight: bold; color: #3498db;">処理中...</span></p>
+            <div class="sync-status">
+              <p>同期状況: <span id="sync-status-text">処理中...</span></p>
+            </div>
           </div>
         </div>
       `;
       
-      document.body.appendChild(modal);
+      document.body.insertAdjacentHTML('beforeend', modalHTML);
       console.log('[OfflineSync] 同期モーダルを表示');
-      
-      // CSSアニメーションを追加
-      const style = document.createElement('style');
-      style.textContent = `
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        @keyframes progress {
-          0% { width: 0%; }
-          50% { width: 70%; }
-          100% { width: 100%; }
-        }
-      `;
-      document.head.appendChild(style);
       
     } catch (error) {
       console.error('[OfflineSync] モーダル表示エラー:', error);
@@ -921,23 +894,12 @@ class OfflineOperationManager {
     try {
       const notification = document.createElement('div');
       notification.className = 'success-notification';
-      notification.style.position = 'fixed';
-      notification.style.top = '20px';
-      notification.style.right = '20px';
-      notification.style.background = '#d4edda';
-      notification.style.color = '#155724';
-      notification.style.border = '1px solid #c3e6cb';
-      notification.style.borderRadius = '5px';
-      notification.style.padding = '15px 20px';
-      notification.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
-      notification.style.zIndex = '10001';
-      notification.style.maxWidth = '400px';
       
       notification.innerHTML = `
-        <div class="notification-content" style="display: flex; align-items: center; gap: 10px;">
-          <span class="notification-icon" style="font-size: 1.2em; color: #28a745;">✓</span>
-          <span class="notification-message" style="flex: 1; font-size: 0.9em;">${message}</span>
-          <button class="notification-close" onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: #155724; font-size: 1.2em; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background-color 0.2s;">×</button>
+        <div class="notification-content">
+          <span class="notification-icon">✓</span>
+          <span class="notification-message">${message}</span>
+          <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
         </div>
       `;
       
@@ -962,25 +924,11 @@ class OfflineOperationManager {
     try {
       const notification = document.createElement('div');
       notification.className = 'sync-failure-notification';
-      notification.style.position = 'fixed';
-      notification.style.top = '50%';
-      notification.style.left = '50%';
-      notification.style.transform = 'translate(-50%, -50%)';
-      notification.style.background = '#f8d7da';
-      notification.style.color = '#721c24';
-      notification.style.border = '1px solid #f5c6cb';
-      notification.style.borderRadius = '8px';
-      notification.style.padding = '25px';
-      notification.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.3)';
-      notification.style.zIndex = '10002';
-      notification.style.maxWidth = '500px';
-      notification.style.width = '90%';
-      notification.style.textAlign = 'center';
       
       notification.innerHTML = `
-        <h4 style="margin: 0 0 15px 0; color: #721c24; font-size: 1.3em;">エラー</h4>
-        <p style="margin: 0 0 20px 0; line-height: 1.5;">${message}</p>
-        <button onclick="this.parentElement.remove()" style="background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 0 5px; font-size: 0.9em; transition: background-color 0.2s;">閉じる</button>
+        <h4>エラー</h4>
+        <p>${message}</p>
+        <button onclick="this.parentElement.remove()">閉じる</button>
       `;
       
       document.body.appendChild(notification);
@@ -1257,29 +1205,7 @@ class OfflineOperationManager {
       btn.id = 'global-settings-button';
       btn.title = '設定';
       btn.setAttribute('aria-label', '設定');
-      btn.style.position = 'fixed';
-      btn.style.left = '16px';
-      btn.style.bottom = '16px';
-      btn.style.zIndex = '10006';
-      btn.style.width = '44px';
-      btn.style.height = '44px';
-      btn.style.background = 'rgba(0, 0, 0, 0.2)';
-      btn.style.color = '#fff';
-      btn.style.border = 'none';
-      btn.style.borderRadius = '50%';
-      btn.style.display = 'flex';
-      btn.style.alignItems = 'center';
-      btn.style.justifyContent = 'center';
-      btn.style.cursor = 'pointer';
-      btn.style.transition = 'transform .3s ease, background .3s ease, opacity .2s ease';
-      btn.onmouseenter = () => { 
-        btn.style.transform = 'scale(1.04) rotate(90deg)'; 
-        btn.style.background = 'rgba(0, 0, 0, 0.4)';
-      };
-      btn.onmouseleave = () => { 
-        btn.style.transform = 'scale(1) rotate(0deg)'; 
-        btn.style.background = 'rgba(0, 0, 0, 0.2)';
-      };
+      btn.className = 'global-settings-button';
       btn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z" fill="white"/></svg>';
       btn.onclick = () => this.openGlobalSettingsPanel();
       document.body.appendChild(btn);
@@ -1346,14 +1272,12 @@ class OfflineOperationManager {
         modal.innerHTML = `
           <h4>オフライン同期</h4>
           <div class="offline-sync-card-controls">
-            <div style="display:flex;flex-direction:column;gap:12px;">
-              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                <span style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">❓ 状態不明</span>
-                <span style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">📋 キュー: 0</span>
-              </div>
-              <button disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
-              <button class="offline-sync-card-btn" style="background:linear-gradient(135deg, #17a2b8 0%, #138496 100%);">📊 詳細表示</button>
+            <div class="offline-sync-controls-fallback">
+              <span class="sync-status-pill">❓ 状態不明</span>
+              <span class="sync-queue-pill">📋 キュー: 0</span>
             </div>
+            <button disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
+            <button class="offline-sync-card-btn">📊 詳細表示</button>
           </div>
           <div class="offline-sync-card-status" id="offline-sync-status">同期状況: エラー</div>
         `;
@@ -1430,30 +1354,30 @@ class OfflineOperationManager {
       
       // カードモーダル用のHTMLを返す
       return `
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <span id="sync-status-pill" style="background:${inProgress ? '#ffc107' : (isOnline ? '#28a745' : '#dc3545')};color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">${inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン')}</span>
-            <span id="sync-queue-pill" style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">📋 キュー: ${queueLen}</span>
+        <div class="offline-sync-controls-wrapper">
+          <div class="offline-sync-controls-pills">
+            <span id="sync-status-pill" class="sync-status-pill ${inProgress ? 'syncing' : (isOnline ? 'online' : 'offline')}">${inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン')}</span>
+            <span id="sync-queue-pill" class="sync-queue-pill">📋 キュー: ${queueLen}</span>
           </div>
           <button id="sync-now-btn" ${disabled} class="offline-sync-card-btn">🔄 今すぐ同期</button>
-          <button id="sync-detail-btn" class="offline-sync-card-btn" style="background:linear-gradient(135deg, #17a2b8 0%, #138496 100%);">📊 詳細表示</button>
+          <button id="sync-detail-btn" class="offline-sync-card-btn detail-btn">📊 詳細表示</button>
         </div>`;
     } catch (error) {
       console.error('[OfflineSync] renderOfflineControlsHTML error:', error);
       // フォールバック用のHTML
       return `
-        <div style="display:flex;flex-direction:column;gap:12px;">
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <span id="sync-status-pill" style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">❓ 状態不明</span>
-            <span id="sync-queue-pill" style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">📋 キュー: 0</span>
+        <div class="offline-sync-controls-wrapper">
+          <div class="offline-sync-controls-pills">
+            <span id="sync-status-pill" class="sync-status-pill unknown">❓ 状態不明</span>
+            <span id="sync-queue-pill" class="sync-queue-pill">📋 キュー: 0</span>
           </div>
           <button id="sync-now-btn" disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
-          <button id="sync-detail-btn" class="offline-sync-card-btn" style="background:linear-gradient(135deg, #17a2b8 0%, #138496 100%);">📊 詳細表示</button>
+          <button id="sync-detail-btn" class="offline-sync-card-btn detail-btn">📊 詳細表示</button>
         </div>`;
     }
   }
 
-  hydrateOfflineControls() {
+    hydrateOfflineControls() {
     try {
       const syncBtn = document.getElementById('sync-now-btn');
       const detailBtn = document.getElementById('sync-detail-btn');
@@ -1498,7 +1422,7 @@ class OfflineOperationManager {
           
           if (statusPill) {
             statusPill.textContent = inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン');
-            statusPill.style.background = inProgress ? '#ffc107' : (isOnline ? '#28a745' : '#dc3545');
+            statusPill.className = `sync-status-pill ${inProgress ? 'syncing' : (isOnline ? 'online' : 'offline')}`;
           }
           if (queuePill) queuePill.textContent = `📋 キュー: ${queueLen}`;
           if (syncBtn) {
@@ -1610,7 +1534,7 @@ window.OfflineSyncV2 = {
   // 競合解決
   resolveConflicts: () => offlineOperationManager.resolveConflicts([]),
   
-  // キューステータスの表示
+    // キューステータスの表示
   showQueueStatus: () => {
     try {
       const queue = offlineOperationManager.readOperationQueue();
@@ -1629,56 +1553,46 @@ window.OfflineSyncV2 = {
         console.log('[OfflineSyncV2] 既存のモーダルを削除');
       }
       
-             // モーダルを直接DOM要素として作成
-       const modal = document.createElement('div');
-       modal.id = 'queue-status-modal';
-       modal.style.position = 'fixed';
-       modal.style.top = '0';
-       modal.style.left = '0';
-       modal.style.width = '100%';
-       modal.style.height = '100%';
-       modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-       modal.style.display = 'flex';
-       modal.style.justifyContent = 'center';
-       modal.style.alignItems = 'center';
-       modal.style.zIndex = '10000';
-       
-       modal.innerHTML = `
-         <div class="modal-content" style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
-           <h3 style="margin: 0 0 20px 0; color: #333; font-size: 1.5em; text-align: center;">オフライン操作キュー状況</h3>
-           <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #007bff;">
-             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">キュー長:</strong> ${queue.length}</p>
-             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">オンライン状態:</strong> ${status.isOnline ? 'オンライン' : 'オフライン'}</p>
-             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">同期状況:</strong> ${status.syncInProgress ? '同期中' : '待機中'}</p>
-             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">最後の同期:</strong> ${status.lastSuccessfulSync ? new Date(status.lastSuccessfulSync).toLocaleString('ja-JP') : 'なし'}</p>
-           </div>
-           <div style="margin-bottom: 25px;">
-             <h4 style="margin: 0 0 15px 0; color: #333; font-size: 1.2em; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">待機中の操作 (${queue.length}件)</h4>
-             ${queue.length > 0 ? queue.map(op => `
-               <div style="background: #fff; border: 1px solid #e9ecef; border-radius: 5px; padding: 15px; margin-bottom: 10px; font-size: 0.9em; line-height: 1.4;">
-                 <strong style="color: #007bff; font-size: 1em;">${op.type}</strong> - ${new Date(op.timestamp).toLocaleString('ja-JP')}
-                 <br>ステータス: ${op.status || 'pending'} (リトライ: ${op.retryCount || 0}/${OFFLINE_CONFIG.MAX_RETRY_COUNT})
-               </div>
-             `).join('') : '<div style="background: #fff; border: 1px solid #e9ecef; border-radius: 5px; padding: 15px; margin-bottom: 10px; font-size: 0.9em; line-height: 1.4;">待機中の操作はありません</div>'}
-           </div>
-           <div style="text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-             <button onclick="OfflineSyncV2.sync()" ${queue.length === 0 ? 'disabled' : ''} style="background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: ${queue.length === 0 ? 'not-allowed' : 'pointer'}; font-size: 0.95em; transition: background-color 0.2s; min-width: 120px;">今すぐ同期</button>
-             <button onclick="OfflineSyncV2.clearQueue()" ${queue.length === 0 ? 'disabled' : ''} style="background: #dc3545; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: ${queue.length === 0 ? 'not-allowed' : 'pointer'}; font-size: 0.95em; transition: background-color 0.2s; min-width: 120px;">キューをクリア</button>
-             <button onclick="document.getElementById('queue-status-modal').remove()" style="background: #6c757d; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-size: 0.95em; transition: background-color 0.2s; min-width: 120px;">閉じる</button>
-           </div>
-         </div>
-       `;
-       
-       document.body.appendChild(modal);
-       
-       console.log('[OfflineSyncV2] モーダルが正常に追加されました');
-       
-       // モーダルクリックで閉じる機能を追加
-       modal.onclick = (e) => {
-         if (e.target === modal) {
-           modal.remove();
-         }
-       };
+      // モーダルを直接DOM要素として作成
+      const modal = document.createElement('div');
+      modal.id = 'queue-status-modal';
+      
+      modal.innerHTML = `
+        <div class="modal-content">
+          <h3>オフライン操作キュー状況</h3>
+          <div class="queue-status">
+            <p><strong>キュー長:</strong> ${queue.length}</p>
+            <p><strong>オンライン状態:</strong> ${status.isOnline ? 'オンライン' : 'オフライン'}</p>
+            <p><strong>同期状況:</strong> ${status.syncInProgress ? '同期中' : '待機中'}</p>
+            <p><strong>最後の同期:</strong> ${status.lastSuccessfulSync ? new Date(status.lastSuccessfulSync).toLocaleString('ja-JP') : 'なし'}</p>
+          </div>
+          <div class="queue-items">
+            <h4>待機中の操作 (${queue.length}件)</h4>
+            ${queue.length > 0 ? queue.map(op => `
+              <div class="queue-item">
+                <strong>${op.type}</strong> - ${new Date(op.timestamp).toLocaleString('ja-JP')}
+                <br>ステータス: ${op.status || 'pending'} (リトライ: ${op.retryCount || 0}/${OFFLINE_CONFIG.MAX_RETRY_COUNT})
+              </div>
+            `).join('') : '<div class="queue-item">待機中の操作はありません</div>'}
+          </div>
+          <div class="modal-buttons">
+            <button onclick="OfflineSyncV2.sync()" ${queue.length === 0 ? 'disabled' : ''}>今すぐ同期</button>
+            <button onclick="OfflineSyncV2.clearQueue()" ${queue.length === 0 ? 'disabled' : ''}>キューをクリア</button>
+            <button onclick="document.getElementById('queue-status-modal').remove()">閉じる</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(modal);
+      
+      console.log('[OfflineSyncV2] モーダルが正常に追加されました');
+      
+      // モーダルクリックで閉じる機能を追加
+      modal.onclick = (e) => {
+        if (e.target === modal) {
+          modal.remove();
+        }
+      };
       
     } catch (error) {
       console.error('[OfflineSyncV2] showQueueStatus error:', error);

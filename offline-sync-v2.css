@@ -517,6 +517,93 @@
   opacity: 1;
 }
 
+/* グローバル設定ボタン */
+.global-settings-button {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 10006;
+  width: 44px;
+  height: 44px;
+  background: rgba(0, 0, 0, 0.2);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform .3s ease, background .3s ease, opacity .2s ease;
+}
+
+.global-settings-button:hover {
+  transform: scale(1.04) rotate(90deg);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.global-settings-button:active {
+  transform: scale(1) rotate(0deg);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* オフライン同期コントロール */
+.offline-sync-controls-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.offline-sync-controls-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.sync-status-pill {
+  background: #6c757d;
+  color: #fff;
+  border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.sync-status-pill.online {
+  background: #28a745;
+}
+
+.sync-status-pill.offline {
+  background: #dc3545;
+}
+
+.sync-status-pill.syncing {
+  background: #ffc107;
+}
+
+.sync-status-pill.unknown {
+  background: #6c757d;
+}
+
+.sync-queue-pill {
+  background: #6c757d;
+  color: #fff;
+  border-radius: 12px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.offline-sync-card-btn.detail-btn {
+  background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+}
+
+.offline-sync-controls-fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* ダークモード対応 */
 @media (prefers-color-scheme: dark) {
   #sync-modal-v2 .modal-content,
@@ -570,5 +657,28 @@
   
   #sync-status-text {
     color: #63b3ed;
+  }
+  
+  .global-settings-button {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  
+  .global-settings-button:hover {
+    background: rgba(255, 255, 255, 0.4);
+  }
+  
+  .offline-sync-card-modal {
+    background: #2d3748;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .offline-sync-card-modal h4 {
+    color: #e2e8f0;
+  }
+  
+  .offline-sync-card-status {
+    background: #4a5568;
+    border-left-color: #28a745;
+    color: #cbd5e0;
   }
 }
