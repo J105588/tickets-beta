@@ -5,8 +5,19 @@ class GasAPI {
   static _callApi(functionName, params = []) {
     return new Promise((resolve, reject) => {
       try {
-        // オフライン時は一切通信しない
-        try { if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) { return resolve({ success: false, error: 'offline', offline: true }); } } catch (_) {}
+        // オフライン時はオフライン同期システムに処理を委譲
+        try { 
+          if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) { 
+            // オフライン同期システムが利用可能な場合は、オフライン操作として処理
+            if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+              console.log('[API] オフライン状態を検知、オフライン同期システムに委譲');
+              // オフライン同期システムに処理を委譲するための特別なレスポンス
+              return resolve({ success: false, error: 'offline_delegate', offline: true, functionName, params });
+            } else {
+              return resolve({ success: false, error: 'offline', offline: true });
+            }
+          } 
+        } catch (_) {}
         debugLog(`API Call (JSONP): ${functionName}`, params);
 
         const callbackName = 'jsonpCallback_' + functionName + '_' + Date.now();

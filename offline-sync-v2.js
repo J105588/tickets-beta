@@ -517,7 +517,10 @@ class OfflineOperationManager {
     
     try {
       const gasAPI = await this.waitForGasAPI();
-      if (!gasAPI) return;
+      if (!gasAPI) {
+        console.warn('[OfflineSync] GasAPIが利用できません。オフラインオーバーライドをスキップします。');
+        return;
+      }
       
       console.log('[OfflineSync] オフライン操作モードに切り替え');
       
@@ -951,7 +954,7 @@ class OfflineOperationManager {
   /**
    * システムの初期化
    */
-  initialize() {
+  async initialize() {
     console.log('[OfflineSync] オフライン同期システム v2.0 を初期化中...');
     
     // 初回: 現在ページの座席が未キャッシュなら最低限の雛形を用意
@@ -964,9 +967,12 @@ class OfflineOperationManager {
       console.error('[OfflineSync] 初期化エラー:', error);
     }
 
+    // オフラインオーバーライドを即座にインストール
+    await this.installOfflineOverrides();
+
     // オフライン状態の確認
     if (!this.isOnline) {
-      this.handleOffline();
+      await this.handleOffline();
     }
 
     console.log('[OfflineSync] 初期化完了');
@@ -1075,10 +1081,18 @@ window.OfflineSyncV2 = {
   }
 };
 
-// システムの初期化
-document.addEventListener('DOMContentLoaded', () => {
-  offlineOperationManager.initialize();
-});
+// システムの初期化（即座に開始）
+(async () => {
+  // DOMContentLoadedを待たずに初期化を開始
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', async () => {
+      await offlineOperationManager.initialize();
+    });
+  } else {
+    // 既にDOMが読み込まれている場合は即座に初期化
+    await offlineOperationManager.initialize();
+  }
+})();
 
 // 既存の関数との互換性を保つ
 function isOffline() { return !offlineOperationManager.isOnline; }
