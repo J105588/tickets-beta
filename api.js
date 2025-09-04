@@ -18,6 +18,17 @@ class GasAPI {
             }
           } 
         } catch (_) {}
+        
+        // ネットワーク接続状態をより詳細にチェック
+        if (typeof navigator !== 'undefined' && navigator && !navigator.onLine) {
+          console.log('[API] ネットワーク接続なし、オフライン同期システムに委譲');
+          if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+            return resolve({ success: false, error: 'offline_delegate', offline: true, functionName, params });
+          } else {
+            return resolve({ success: false, error: 'offline', offline: true });
+          }
+        }
+        
         debugLog(`API Call (JSONP): ${functionName}`, params);
 
         const callbackName = 'jsonpCallback_' + functionName + '_' + Date.now();
@@ -72,8 +83,15 @@ class GasAPI {
               script.parentNode.removeChild(script);
             }
           } catch (e) {}
-          this._reportError(`JSONPタイムアウト: ${functionName}`);
-          resolve({ success: false, error: `JSONPタイムアウト: ${functionName}`, timeout: true });
+          
+          // タイムアウト時もオフライン同期システムに委譲を試行
+          if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+            console.log('[API] タイムアウト、オフライン同期システムに委譲');
+            resolve({ success: false, error: 'offline_delegate', offline: true, functionName, params });
+          } else {
+            this._reportError(`JSONPタイムアウト: ${functionName}`);
+            resolve({ success: false, error: `JSONPタイムアウト: ${functionName}`, timeout: true });
+          }
         }, 15000);
 
         script.onerror = (error) => {
@@ -103,8 +121,14 @@ class GasAPI {
             };
             console.error('API call failed details:', errorDetails);
             
-            this._reportError(`JSONPリクエストに失敗しました: ${functionName} (詳細: ${JSON.stringify(errorDetails)})`);
-            resolve({ success: false, error: `JSONPリクエストに失敗しました: ${functionName}`, details: errorDetails });
+            // エラー時もオフライン同期システムに委譲を試行
+            if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+              console.log('[API] エラー、オフライン同期システムに委譲');
+              resolve({ success: false, error: 'offline_delegate', offline: true, functionName, params });
+            } else {
+              this._reportError(`JSONPリクエストに失敗しました: ${functionName} (詳細: ${JSON.stringify(errorDetails)})`);
+              resolve({ success: false, error: `JSONPリクエストに失敗しました: ${functionName}`, details: errorDetails });
+            }
           } catch (e) {
             console.error('API error cleanup failed:', e);
             resolve({ success: false, error: 'APIエラー処理中に例外が発生しました: ' + e.message });
@@ -114,8 +138,14 @@ class GasAPI {
         (document.head || document.body || document.documentElement).appendChild(script);
       } catch (err) {
         console.error('API call exception:', err);
-        this._reportError(`API呼び出し例外: ${err.message}`);
-        resolve({ success: false, error: `API呼び出し例外: ${err.message}`, exception: true });
+        // 例外時もオフライン同期システムに委譲を試行
+        if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+          console.log('[API] 例外、オフライン同期システムに委譲');
+          resolve({ success: false, error: 'offline_delegate', offline: true, functionName, params });
+        } else {
+          this._reportError(`API呼び出し例外: ${err.message}`);
+          resolve({ success: false, error: `API呼び出し例外: ${err.message}`, exception: true });
+        }
       }
     });
   }

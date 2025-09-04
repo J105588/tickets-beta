@@ -162,6 +162,24 @@ async function issueWalkinConsecutive() {
 
   try {
     const response = await GasAPI.assignWalkInConsecutiveSeats(GROUP, DAY, TIMESLOT, num);
+    
+    // オフライン委譲レスポンスの処理
+    if (response.error === 'offline_delegate' && response.functionName && response.params) {
+      if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+        const operationId = window.OfflineSyncV2.addOperation({ 
+          type: response.functionName, 
+          args: response.params 
+        });
+        showLoader(false);
+        showSuccessNotification('オフラインで当日券を受け付けました。オンライン復帰時に自動同期されます。');
+        
+        // オフライン時の仮の座席表示（実際の座席は同期後に確定）
+        reservedSeatEl.textContent = `オフライン処理中 (ID: ${operationId})`;
+        reservationResult.classList.add('show');
+        return;
+      }
+    }
+    
     if (response.success) {
       showLoader(false);
       showSuccessNotification(response.message || '座席が確保されました。');
@@ -177,15 +195,6 @@ async function issueWalkinConsecutive() {
       }
       reservationResult.classList.add('show');
     } else {
-      // オフライン委譲レスポンスの処理
-      if (response.error === 'offline_delegate' && response.functionName && response.params) {
-        if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
-          window.OfflineSyncV2.addOperation({ type: response.functionName, args: response.params });
-          showLoader(false);
-          showSuccessNotification('オフラインで当日券を受け付けました。オンライン復帰時に自動同期されます。');
-          return;
-        }
-      }
       showLoader(false);
       showErrorNotification(response.message || '連続席が見つかりませんでした。');
     }
@@ -220,6 +229,23 @@ async function issueWalkinAnywhere() {
       response = await GasAPI.assignWalkInSeats(GROUP, DAY, TIMESLOT, num);
     }
 
+    // オフライン委譲レスポンスの処理
+    if (response.error === 'offline_delegate' && response.functionName && response.params) {
+      if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+        const operationId = window.OfflineSyncV2.addOperation({ 
+          type: response.functionName, 
+          args: response.params 
+        });
+        showLoader(false);
+        showSuccessNotification('オフラインで当日券を受け付けました。オンライン復帰時に自動同期されます。');
+        
+        // オフライン時の仮の座席表示（実際の座席は同期後に確定）
+        reservedSeatEl.textContent = `オフライン処理中 (ID: ${operationId})`;
+        reservationResult.classList.add('show');
+        return;
+      }
+    }
+
     if (response.success) {
       showLoader(false);
       showSuccessNotification(response.message || '座席が確保されました。');
@@ -235,15 +261,6 @@ async function issueWalkinAnywhere() {
       }
       reservationResult.classList.add('show');
     } else {
-      // オフライン委譲レスポンスの処理
-      if (response.error === 'offline_delegate' && response.functionName && response.params) {
-        if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
-          window.OfflineSyncV2.addOperation({ type: response.functionName, args: response.params });
-          showLoader(false);
-          showSuccessNotification('オフラインで当日券を受け付けました。オンライン復帰時に自動同期されます。');
-          return;
-        }
-      }
       showLoader(false);
       showErrorNotification(response.message || '空席が見つかりませんでした。');
     }
@@ -302,34 +319,58 @@ function initializeOfflineIndicator() {
 function showSuccessNotification(message) {
   const notification = document.createElement('div');
   notification.className = 'success-notification';
+  notification.style.position = 'fixed';
+  notification.style.top = '20px';
+  notification.style.right = '20px';
+  notification.style.background = '#d4edda';
+  notification.style.color = '#155724';
+  notification.style.border = '1px solid #c3e6cb';
+  notification.style.borderRadius = '5px';
+  notification.style.padding = '15px 20px';
+  notification.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+  notification.style.zIndex = '10001';
+  notification.style.maxWidth = '400px';
+  
   notification.innerHTML = `
-    <div class="notification-content">
-      <span class="notification-icon">✓</span>
-      <span class="notification-message">${message}</span>
-      <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+    <div class="notification-content" style="display: flex; align-items: center; gap: 10px;">
+      <span class="notification-icon" style="font-size: 1.2em; color: #28a745;">✓</span>
+      <span class="notification-message" style="flex: 1; font-size: 0.9em;">${message}</span>
+      <button class="notification-close" onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: #155724; font-size: 1.2em; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background-color 0.2s;">×</button>
     </div>
   `;
   
   // 通知を表示
   document.body.appendChild(notification);
   
-  // 3秒後に自動で消す
+  // 4秒後に自動で消す
   setTimeout(() => {
     if (notification.parentElement) {
       notification.remove();
     }
-  }, 3000);
+  }, 4000);
 }
 
 // エラー通知を表示する関数（非ブロッキング）
 function showErrorNotification(message) {
   const notification = document.createElement('div');
   notification.className = 'error-notification';
+  notification.style.position = 'fixed';
+  notification.style.top = '20px';
+  notification.style.right = '20px';
+  notification.style.background = '#f8d7da';
+  notification.style.color = '#721c24';
+  notification.style.border = '1px solid #f5c6cb';
+  notification.style.borderRadius = '5px';
+  notification.style.padding = '15px 20px';
+  notification.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+  notification.style.zIndex = '10001';
+  notification.style.maxWidth = '400px';
+  
   notification.innerHTML = `
-    <div class="notification-content">
-      <span class="notification-icon">✗</span>
-      <span class="notification-message">${message}</span>
-      <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+    <div class="notification-content" style="display: flex; align-items: center; gap: 10px;">
+      <span class="notification-icon" style="font-size: 1.2em; color: #dc3545;">✗</span>
+      <span class="notification-message" style="flex: 1; font-size: 0.9em;">${message}</span>
+      <button class="notification-close" onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: #721c24; font-size: 1.2em; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background-color 0.2s;">×</button>
     </div>
   `;
   

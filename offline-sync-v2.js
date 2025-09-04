@@ -484,20 +484,20 @@ class OfflineOperationManager {
             : await gasAPI.updateSeatData(...args);
           console.log(`[OfflineSync] updateSeatData呼び出し完了(オリジナル)`);
           break;
-        case OPERATION_TYPES.ASSIGN_WALKIN:
-          console.log(`[OfflineSync] assignWalkInSeats呼び出し開始(オリジナル)`);
-          result = this.originalMethods && this.originalMethods.assignWalkInSeats
-            ? await this.originalMethods.assignWalkInSeats(...args)
-            : await gasAPI.assignWalkInSeats(...args);
-          console.log(`[OfflineSync] assignWalkInSeats呼び出し完了(オリジナル)`);
-          break;
-        case OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE:
-          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し開始(オリジナル)`);
-          result = this.originalMethods && this.originalMethods.assignWalkInConsecutiveSeats
-            ? await this.originalMethods.assignWalkInConsecutiveSeats(...args)
-            : await gasAPI.assignWalkInConsecutiveSeats(...args);
-          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し完了(オリジナル)`);
-          break;
+                 case OPERATION_TYPES.ASSIGN_WALKIN:
+           console.log(`[OfflineSync] assignWalkInSeat呼び出し開始(オリジナル)`);
+           result = this.originalMethods && this.originalMethods.assignWalkInSeat
+             ? await this.originalMethods.assignWalkInSeat(...args)
+             : await gasAPI.assignWalkInSeat(...args);
+           console.log(`[OfflineSync] assignWalkInSeat呼び出し完了(オリジナル)`);
+           break;
+         case OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE:
+           console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し開始(オリジナル)`);
+           result = this.originalMethods && this.originalMethods.assignWalkInConsecutiveSeats
+             ? await this.originalMethods.assignWalkInConsecutiveSeats(...args)
+             : await gasAPI.assignWalkInConsecutiveSeats(...args);
+           console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し完了(オリジナル)`);
+           break;
         default:
           result = { success: false, error: `未知の操作タイプ: ${type}` };
       }
@@ -665,14 +665,15 @@ class OfflineOperationManager {
       
       console.log('[OfflineSync] オフライン操作モードに切り替え');
       
-      // 元のメソッドを保存
-      const originalMethods = {
-        reserveSeats: gasAPI.reserveSeats.bind(gasAPI),
-        checkInMultipleSeats: gasAPI.checkInMultipleSeats.bind(gasAPI),
-        updateSeatData: gasAPI.updateSeatData.bind(gasAPI),
-        assignWalkInSeats: gasAPI.assignWalkInSeats.bind(gasAPI),
-        assignWalkInConsecutiveSeats: gasAPI.assignWalkInConsecutiveSeats.bind(gasAPI)
-      };
+             // 元のメソッドを保存
+       const originalMethods = {
+         reserveSeats: gasAPI.reserveSeats.bind(gasAPI),
+         checkInMultipleSeats: gasAPI.checkInMultipleSeats.bind(gasAPI),
+         updateSeatData: gasAPI.updateSeatData.bind(gasAPI),
+         assignWalkInSeat: gasAPI.assignWalkInSeat.bind(gasAPI),
+         assignWalkInSeats: gasAPI.assignWalkInSeats.bind(gasAPI),
+         assignWalkInConsecutiveSeats: gasAPI.assignWalkInConsecutiveSeats.bind(gasAPI)
+       };
       // インスタンスに保持（同期時にオリジナルを使用）
       this.originalMethods = originalMethods;
 
@@ -754,56 +755,83 @@ class OfflineOperationManager {
         }
       };
 
-      // 当日券発行のオフライン対応
-      gasAPI.assignWalkInSeats = async (...args) => {
-        if (this.isOnline) {
-          try {
-            return await originalMethods.assignWalkInSeats(...args);
-          } catch (error) {
-            console.log('[OfflineSync] オンライン当日券発行失敗、オフライン操作として処理');
-            const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
-            return { 
-              success: true, 
-              message: 'オフラインで当日券発行を受け付けました', 
-              offline: true, 
-              operationId 
-            };
-          }
-        } else {
-          const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
-          return { 
-            success: true, 
-            message: 'オフラインで当日券発行を受け付けました', 
-            offline: true, 
-            operationId 
-          };
-        }
-      };
+             // 当日券発行のオフライン対応（単発）
+       gasAPI.assignWalkInSeat = async (...args) => {
+         if (this.isOnline) {
+           try {
+             return await originalMethods.assignWalkInSeat(...args);
+           } catch (error) {
+             console.log('[OfflineSync] オンライン当日券発行失敗、オフライン操作として処理');
+             const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
+             return { 
+               success: true, 
+               message: 'オフラインで当日券発行を受け付けました', 
+               offline: true, 
+               operationId 
+             };
+           }
+         } else {
+           const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
+           return { 
+             success: true, 
+             message: 'オフラインで当日券発行を受け付けました', 
+             offline: true, 
+             operationId 
+           };
+         }
+       };
 
-      gasAPI.assignWalkInConsecutiveSeats = async (...args) => {
-        if (this.isOnline) {
-          try {
-            return await originalMethods.assignWalkInConsecutiveSeats(...args);
-          } catch (error) {
-            console.log('[OfflineSync] オンライン連続席発行失敗、オフライン操作として処理');
-            const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE, args });
-            return { 
-              success: true, 
-              message: 'オフラインで連続席発行を受け付けました', 
-              offline: true, 
-              operationId 
-            };
-          }
-        } else {
-          const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE, args });
-          return { 
-            success: true, 
-            message: 'オフラインで連続席発行を受け付けました', 
-            offline: true, 
-            operationId 
-          };
-        }
-      };
+       // 当日券発行のオフライン対応（複数）
+       gasAPI.assignWalkInSeats = async (...args) => {
+         if (this.isOnline) {
+           try {
+             return await originalMethods.assignWalkInSeats(...args);
+           } catch (error) {
+             console.log('[OfflineSync] オンライン当日券発行失敗、オフライン操作として処理');
+             const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
+             return { 
+               success: true, 
+               message: 'オフラインで当日券発行を受け付けました', 
+               offline: true, 
+               operationId 
+             };
+           }
+         } else {
+           const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
+           return { 
+             success: true, 
+             message: 'オフラインで当日券発行を受け付けました', 
+             offline: true, 
+             operationId 
+           };
+         }
+       };
+
+       // 連続席当日券発行のオフライン対応
+       gasAPI.assignWalkInConsecutiveSeats = async (...args) => {
+         if (this.isOnline) {
+           try {
+             return await originalMethods.assignWalkInConsecutiveSeats(...args);
+           } catch (error) {
+             console.log('[OfflineSync] オンライン連続席発行失敗、オフライン操作として処理');
+             const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE, args });
+             return { 
+               success: true, 
+               message: 'オフラインで連続席発行を受け付けました', 
+               offline: true, 
+               operationId 
+             };
+           }
+         } else {
+           const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE, args });
+           return { 
+             success: true, 
+             message: 'オフラインで連続席発行を受け付けました', 
+             offline: true, 
+             operationId 
+           };
+         }
+       };
       
     } catch (error) {
       console.error('[OfflineSync] オフラインオーバーライドのインストールに失敗:', error);
@@ -818,26 +846,54 @@ class OfflineOperationManager {
       const existing = document.getElementById('sync-modal-v2');
       if (existing) existing.remove();
 
-      const modalHTML = `
-        <div id="sync-modal-v2" class="modal" style="display: block; z-index: 10000;">
-          <div class="modal-content" style="text-align: center; max-width: 450px;">
-            <div class="spinner"></div>
-            <h3>オフライン操作を同期中...</h3>
-            <p>しばらくお待ちください。操作はできません。</p>
-            <div class="sync-progress">
-              <div class="progress-bar">
-                <div class="progress-fill"></div>
-              </div>
+      // モーダルを直接DOM要素として作成
+      const modal = document.createElement('div');
+      modal.id = 'sync-modal-v2';
+      modal.style.position = 'fixed';
+      modal.style.top = '0';
+      modal.style.left = '0';
+      modal.style.width = '100%';
+      modal.style.height = '100%';
+      modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+      modal.style.display = 'flex';
+      modal.style.justifyContent = 'center';
+      modal.style.alignItems = 'center';
+      modal.style.zIndex = '10000';
+      
+      modal.innerHTML = `
+        <div class="modal-content" style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); text-align: center; max-width: 450px; width: 90%;">
+          <div class="spinner" style="width: 50px; height: 50px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px auto;"></div>
+          <h3 style="margin: 0 0 15px 0; color: #333; font-size: 1.4em;">オフライン操作を同期中...</h3>
+          <p style="margin: 0 0 20px 0; color: #666; line-height: 1.5;">しばらくお待ちください。操作はできません。</p>
+          <div class="sync-progress" style="margin: 20px 0;">
+            <div class="progress-bar" style="width: 100%; height: 8px; background-color: #f0f0f0; border-radius: 4px; overflow: hidden;">
+              <div class="progress-fill" style="height: 100%; background: linear-gradient(90deg, #3498db, #2ecc71); width: 0%; animation: progress 2s ease-in-out infinite; border-radius: 4px;"></div>
             </div>
-            <div class="sync-status">
-              <p>同期状況: <span id="sync-status-text">処理中...</span></p>
-            </div>
+          </div>
+          <div class="sync-status" style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px; border-left: 4px solid #3498db;">
+            <p style="margin: 0; font-size: 0.9em; color: #555;">同期状況: <span id="sync-status-text" style="font-weight: bold; color: #3498db;">処理中...</span></p>
           </div>
         </div>
       `;
       
-      document.body.insertAdjacentHTML('beforeend', modalHTML);
+      document.body.appendChild(modal);
       console.log('[OfflineSync] 同期モーダルを表示');
+      
+      // CSSアニメーションを追加
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes progress {
+          0% { width: 0%; }
+          50% { width: 70%; }
+          100% { width: 100%; }
+        }
+      `;
+      document.head.appendChild(style);
+      
     } catch (error) {
       console.error('[OfflineSync] モーダル表示エラー:', error);
     }
@@ -862,23 +918,83 @@ class OfflineOperationManager {
    * 成功通知の表示
    */
   showSuccessNotification(message) {
-    const notification = document.createElement('div');
-    notification.className = 'success-notification';
-    notification.innerHTML = `
-      <div class="notification-content">
-        <span class="notification-icon">✓</span>
-        <span class="notification-message">${message}</span>
-        <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
-      </div>
-    `;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      if (notification.parentElement) {
-        notification.remove();
-      }
-    }, 4000);
+    try {
+      const notification = document.createElement('div');
+      notification.className = 'success-notification';
+      notification.style.position = 'fixed';
+      notification.style.top = '20px';
+      notification.style.right = '20px';
+      notification.style.background = '#d4edda';
+      notification.style.color = '#155724';
+      notification.style.border = '1px solid #c3e6cb';
+      notification.style.borderRadius = '5px';
+      notification.style.padding = '15px 20px';
+      notification.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+      notification.style.zIndex = '10001';
+      notification.style.maxWidth = '400px';
+      
+      notification.innerHTML = `
+        <div class="notification-content" style="display: flex; align-items: center; gap: 10px;">
+          <span class="notification-icon" style="font-size: 1.2em; color: #28a745;">✓</span>
+          <span class="notification-message" style="flex: 1; font-size: 0.9em;">${message}</span>
+          <button class="notification-close" onclick="this.parentElement.parentElement.remove()" style="background: none; border: none; color: #155724; font-size: 1.2em; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: background-color 0.2s;">×</button>
+        </div>
+      `;
+      
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+      }, 4000);
+    } catch (error) {
+      console.error('[OfflineSync] 成功通知の表示に失敗:', error);
+      // フォールバック: アラートで表示
+      alert(message);
+    }
+  }
+
+  /**
+   * エラー通知の表示
+   */
+  showErrorNotification(message) {
+    try {
+      const notification = document.createElement('div');
+      notification.className = 'sync-failure-notification';
+      notification.style.position = 'fixed';
+      notification.style.top = '50%';
+      notification.style.left = '50%';
+      notification.style.transform = 'translate(-50%, -50%)';
+      notification.style.background = '#f8d7da';
+      notification.style.color = '#721c24';
+      notification.style.border = '1px solid #f5c6cb';
+      notification.style.borderRadius = '8px';
+      notification.style.padding = '25px';
+      notification.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.3)';
+      notification.style.zIndex = '10002';
+      notification.style.maxWidth = '500px';
+      notification.style.width = '90%';
+      notification.style.textAlign = 'center';
+      
+      notification.innerHTML = `
+        <h4 style="margin: 0 0 15px 0; color: #721c24; font-size: 1.3em;">エラー</h4>
+        <p style="margin: 0 0 20px 0; line-height: 1.5;">${message}</p>
+        <button onclick="this.parentElement.remove()" style="background: #dc3545; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin: 0 5px; font-size: 0.9em; transition: background-color 0.2s;">閉じる</button>
+      `;
+      
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+      }, 6000);
+    } catch (error) {
+      console.error('[OfflineSync] エラー通知の表示に失敗:', error);
+      // フォールバック: アラートで表示
+      alert(message);
+    }
   }
 
   /**
@@ -1442,7 +1558,41 @@ window.OfflineSyncV2 = {
   
   // キュー管理
   getQueue: () => offlineOperationManager.readOperationQueue(),
-  clearQueue: () => offlineOperationManager.writeOperationQueue([]),
+  clearQueue: () => {
+    try {
+      offlineOperationManager.writeOperationQueue([]);
+      console.log('[OfflineSyncV2] キューをクリアしました');
+      
+      // 成功通知を表示
+      const notification = document.createElement('div');
+      notification.className = 'success-notification';
+      notification.innerHTML = `
+        <div class="notification-content">
+          <span class="notification-icon">✓</span>
+          <span class="notification-message">キューをクリアしました</span>
+          <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+        </div>
+      `;
+      
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification.parentElement) {
+          notification.remove();
+        }
+      }, 3000);
+      
+      // 現在開いているキューステータスモーダルがあれば閉じる
+      const modal = document.getElementById('queue-status-modal');
+      if (modal) {
+        modal.remove();
+      }
+      
+    } catch (error) {
+      console.error('[OfflineSyncV2] キュークリアエラー:', error);
+      alert('キューのクリアに失敗しました');
+    }
+  },
   
   // キャッシュ管理
   getCache: () => offlineOperationManager.getCacheInfo(),
@@ -1462,45 +1612,81 @@ window.OfflineSyncV2 = {
   
   // キューステータスの表示
   showQueueStatus: () => {
-    const queue = offlineOperationManager.readOperationQueue();
-    const status = offlineOperationManager.getSystemStatus();
-    
-    console.log('[OfflineSyncV2] キューステータス:', {
-      queueLength: queue.length,
-      systemStatus: status,
-      queue: queue
-    });
-    
-    // モーダルで表示
-    const modalHTML = `
-      <div id="queue-status-modal" class="modal" style="display: block; z-index: 10000;">
-        <div class="modal-content" style="max-width: 600px;">
-          <h3>オフライン操作キュー状況</h3>
-          <div class="queue-status">
-            <p><strong>キュー長:</strong> ${queue.length}</p>
-            <p><strong>オンライン状態:</strong> ${status.isOnline ? 'オンライン' : 'オフライン'}</p>
-            <p><strong>同期状況:</strong> ${status.syncInProgress ? '同期中' : '待機中'}</p>
-            <p><strong>最後の同期:</strong> ${status.lastSuccessfulSync ? new Date(status.lastSuccessfulSync).toLocaleString('ja-JP') : 'なし'}</p>
-          </div>
-          <div class="queue-items">
-            <h4>待機中の操作 (${queue.length}件)</h4>
-            ${queue.map(op => `
-              <div class="queue-item">
-                <strong>${op.type}</strong> - ${new Date(op.timestamp).toLocaleString('ja-JP')}
-                <br>ステータス: ${op.status} (リトライ: ${op.retryCount}/${OFFLINE_CONFIG.MAX_RETRY_COUNT})
-              </div>
-            `).join('')}
-          </div>
-          <div class="modal-buttons">
-            <button onclick="OfflineSyncV2.sync()">今すぐ同期</button>
-            <button onclick="OfflineSyncV2.clearQueue()">キューをクリア</button>
-            <button onclick="document.getElementById('queue-status-modal').remove()">閉じる</button>
-          </div>
-        </div>
-      </div>
-    `;
-    
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    try {
+      const queue = offlineOperationManager.readOperationQueue();
+      const status = offlineOperationManager.getSystemStatus();
+      
+      console.log('[OfflineSyncV2] キューステータス:', {
+        queueLength: queue.length,
+        systemStatus: status,
+        queue: queue
+      });
+      
+      // 既存のモーダルがあれば削除
+      const existingModal = document.getElementById('queue-status-modal');
+      if (existingModal) {
+        existingModal.remove();
+        console.log('[OfflineSyncV2] 既存のモーダルを削除');
+      }
+      
+             // モーダルを直接DOM要素として作成
+       const modal = document.createElement('div');
+       modal.id = 'queue-status-modal';
+       modal.style.position = 'fixed';
+       modal.style.top = '0';
+       modal.style.left = '0';
+       modal.style.width = '100%';
+       modal.style.height = '100%';
+       modal.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+       modal.style.display = 'flex';
+       modal.style.justifyContent = 'center';
+       modal.style.alignItems = 'center';
+       modal.style.zIndex = '10000';
+       
+       modal.innerHTML = `
+         <div class="modal-content" style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+           <h3 style="margin: 0 0 20px 0; color: #333; font-size: 1.5em; text-align: center;">オフライン操作キュー状況</h3>
+           <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #007bff;">
+             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">キュー長:</strong> ${queue.length}</p>
+             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">オンライン状態:</strong> ${status.isOnline ? 'オンライン' : 'オフライン'}</p>
+             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">同期状況:</strong> ${status.syncInProgress ? '同期中' : '待機中'}</p>
+             <p style="margin: 8px 0; font-size: 0.95em; color: #555;"><strong style="color: #333;">最後の同期:</strong> ${status.lastSuccessfulSync ? new Date(status.lastSuccessfulSync).toLocaleString('ja-JP') : 'なし'}</p>
+           </div>
+           <div style="margin-bottom: 25px;">
+             <h4 style="margin: 0 0 15px 0; color: #333; font-size: 1.2em; border-bottom: 2px solid #e9ecef; padding-bottom: 8px;">待機中の操作 (${queue.length}件)</h4>
+             ${queue.length > 0 ? queue.map(op => `
+               <div style="background: #fff; border: 1px solid #e9ecef; border-radius: 5px; padding: 15px; margin-bottom: 10px; font-size: 0.9em; line-height: 1.4;">
+                 <strong style="color: #007bff; font-size: 1em;">${op.type}</strong> - ${new Date(op.timestamp).toLocaleString('ja-JP')}
+                 <br>ステータス: ${op.status || 'pending'} (リトライ: ${op.retryCount || 0}/${OFFLINE_CONFIG.MAX_RETRY_COUNT})
+               </div>
+             `).join('') : '<div style="background: #fff; border: 1px solid #e9ecef; border-radius: 5px; padding: 15px; margin-bottom: 10px; font-size: 0.9em; line-height: 1.4;">待機中の操作はありません</div>'}
+           </div>
+           <div style="text-align: center; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+             <button onclick="OfflineSyncV2.sync()" ${queue.length === 0 ? 'disabled' : ''} style="background: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: ${queue.length === 0 ? 'not-allowed' : 'pointer'}; font-size: 0.95em; transition: background-color 0.2s; min-width: 120px;">今すぐ同期</button>
+             <button onclick="OfflineSyncV2.clearQueue()" ${queue.length === 0 ? 'disabled' : ''} style="background: #dc3545; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: ${queue.length === 0 ? 'not-allowed' : 'pointer'}; font-size: 0.95em; transition: background-color 0.2s; min-width: 120px;">キューをクリア</button>
+             <button onclick="document.getElementById('queue-status-modal').remove()" style="background: #6c757d; color: white; border: none; padding: 12px 24px; border-radius: 5px; cursor: pointer; font-size: 0.95em; transition: background-color 0.2s; min-width: 120px;">閉じる</button>
+           </div>
+         </div>
+       `;
+       
+       document.body.appendChild(modal);
+       
+       console.log('[OfflineSyncV2] モーダルが正常に追加されました');
+       
+       // モーダルクリックで閉じる機能を追加
+       modal.onclick = (e) => {
+         if (e.target === modal) {
+           modal.remove();
+         }
+       };
+      
+    } catch (error) {
+      console.error('[OfflineSyncV2] showQueueStatus error:', error);
+      // フォールバック: アラートで情報を表示
+      const queue = offlineOperationManager.readOperationQueue();
+      const status = offlineOperationManager.getSystemStatus();
+      alert(`オフライン同期状況:\n\nキュー長: ${queue.length}\nオンライン状態: ${status.isOnline ? 'オンライン' : 'オフライン'}\n同期状況: ${status.syncInProgress ? '同期中' : '待機中'}`);
+    }
   },
   
   // デバッグ機能
