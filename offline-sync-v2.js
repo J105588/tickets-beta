@@ -1,0 +1,1095 @@
+// ===============================================================
+// オフライン同期システム v2.0 - 完全再設計版
+// ===============================================================
+
+// 定数定義
+const OFFLINE_CONFIG = {
+  ENABLED: true,
+  SYNC_INTERVAL_MS: 15000, // 15秒
+  MAX_RETRY_COUNT: 5,
+  RETRY_DELAY_MS: 3000, // 3秒
+  MAX_QUEUE_SIZE: 1000,
+  SYNC_TIMEOUT_MS: 60000, // 60秒
+  BACKGROUND_SYNC_INTERVAL: 30000, // 30秒
+  CACHE_EXPIRY_MS: 300000 // 5分
+};
+
+// ストレージキー
+const STORAGE_KEYS = {
+  OPERATION_QUEUE: 'offlineOperationQueue_v2',
+  OPERATION_LOG: 'offlineOperationLog_v2',
+  CACHE_DATA: 'offlineCacheData_v2',
+  SYNC_STATE: 'offlineSyncState_v2',
+  CONFLICT_RESOLUTION: 'offlineConflictResolution_v2'
+};
+
+// 操作タイプ定義
+const OPERATION_TYPES = {
+  RESERVE_SEATS: 'reserveSeats',
+  CHECK_IN_SEATS: 'checkInMultipleSeats',
+  UPDATE_SEAT_DATA: 'updateSeatData',
+  ASSIGN_WALKIN: 'assignWalkInSeats',
+  ASSIGN_WALKIN_CONSECUTIVE: 'assignWalkInConsecutiveSeats'
+};
+
+// 操作の優先度
+const OPERATION_PRIORITY = {
+  [OPERATION_TYPES.RESERVE_SEATS]: 1, // 最高優先度
+  [OPERATION_TYPES.CHECK_IN_SEATS]: 2,
+  [OPERATION_TYPES.UPDATE_SEAT_DATA]: 3,
+  [OPERATION_TYPES.ASSIGN_WALKIN]: 4,
+  [OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE]: 4
+};
+
+/**
+ * オフライン操作管理クラス
+ */
+class OfflineOperationManager {
+  constructor() {
+    this.isOnline = navigator.onLine;
+    this.syncInProgress = false;
+    this.syncState = this.loadSyncState();
+    this.backgroundSyncInterval = null;
+    this.retryTimeout = null;
+    this.operationCounter = 0;
+    
+    this.initializeEventListeners();
+    this.startBackgroundSync();
+  }
+
+  /**
+   * イベントリスナーの初期化
+   */
+  initializeEventListeners() {
+    window.addEventListener('online', () => this.handleOnline());
+    window.addEventListener('offline', () => this.handleOffline());
+    window.addEventListener('beforeunload', () => this.handleBeforeUnload());
+    
+    // 定期的な接続状態チェック
+    setInterval(() => this.checkConnectionStatus(), 5000);
+    
+    // ページ可視性の変更を監視
+    document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
+  }
+
+  /**
+   * オンライン復帰時の処理
+   */
+  async handleOnline() {
+    if (this.isOnline) return;
+    
+    console.log('[OfflineSync] オンライン復帰を検知');
+    this.isOnline = true;
+    this.syncState.lastOnlineTime = Date.now();
+    this.saveSyncState();
+    
+    // 即座に同期を開始
+    await this.performSync();
+    
+    // バックグラウンド同期を再開
+    this.startBackgroundSync();
+  }
+
+  /**
+   * オフライン状態の処理
+   */
+  async handleOffline() {
+    if (!this.isOnline) return;
+    
+    console.log('[OfflineSync] オフライン状態を検知');
+    this.isOnline = false;
+    this.syncState.lastOfflineTime = Date.now();
+    this.saveSyncState();
+    
+    // バックグラウンド同期を停止
+    this.stopBackgroundSync();
+    
+    // オフライン操作モードに切り替え
+    await this.installOfflineOverrides();
+  }
+
+  /**
+   * 接続状態のチェック
+   */
+  checkConnectionStatus() {
+    const currentOnline = navigator.onLine;
+    if (currentOnline !== this.isOnline) {
+      if (currentOnline) {
+        this.handleOnline();
+      } else {
+        this.handleOffline();
+      }
+    }
+  }
+
+  /**
+   * ページ可視性の変更を処理
+   */
+  handleVisibilityChange() {
+    if (document.visibilityState === 'visible' && this.isOnline) {
+      // ページが表示された時に同期を実行
+      this.performSync();
+    }
+  }
+
+  /**
+   * ページ離脱時の処理
+   */
+  handleBeforeUnload() {
+    // 同期状態を保存
+    this.saveSyncState();
+    
+    // 未同期の操作がある場合は警告
+    const queue = this.readOperationQueue();
+    if (queue.length > 0) {
+      return 'オフライン操作が未同期です。ページを離れますか？';
+    }
+  }
+
+  /**
+   * オフライン操作をキューに追加
+   */
+  addOperation(operation) {
+    const queue = this.readOperationQueue();
+    
+    // キューサイズの制限チェック
+    if (queue.length >= OFFLINE_CONFIG.MAX_QUEUE_SIZE) {
+      console.warn('[OfflineSync] キューが最大サイズに達しました。古い操作を削除します。');
+      queue.splice(0, Math.floor(queue.length / 2)); // 古い操作を半分削除
+    }
+    
+    const operationWithMeta = {
+      ...operation,
+      id: this.generateOperationId(),
+      timestamp: Date.now(),
+      retryCount: 0,
+      priority: OPERATION_PRIORITY[operation.type] || 5,
+      status: 'pending',
+      precondition: this.capturePrecondition(operation)
+    };
+    
+    queue.push(operationWithMeta);
+    
+    // 優先度順にソート
+    queue.sort((a, b) => a.priority - b.priority);
+    
+    this.writeOperationQueue(queue);
+    this.logOperation(operationWithMeta);
+    
+    console.log(`[OfflineSync] オフライン操作を追加: ${operation.type} (ID: ${operationWithMeta.id})`);
+    
+    // オンライン時は即座に同期を試行
+    if (this.isOnline && !this.syncInProgress) {
+      this.performSync();
+    }
+    
+    return operationWithMeta.id;
+  }
+
+  /**
+   * 操作の前提条件をキャプチャ
+   */
+  capturePrecondition(operation) {
+    try {
+      const { group, day, timeslot } = this.extractContext(operation.args);
+      if (group && day && timeslot) {
+        const cache = this.readCache(group, day, timeslot);
+        return cache ? { timestamp: cache.cachedAt, version: cache.version } : null;
+      }
+    } catch (error) {
+      console.warn('[OfflineSync] 前提条件のキャプチャに失敗:', error);
+    }
+    return null;
+  }
+
+  /**
+   * 操作IDの生成
+   */
+  generateOperationId() {
+    this.operationCounter++;
+    return `op_${Date.now()}_${this.operationCounter}_${Math.random().toString(36).substr(2, 6)}`;
+  }
+
+  /**
+   * 操作のログ出力
+   */
+  logOperation(operation) {
+    const log = this.readOperationLog();
+    log.push({
+      timestamp: Date.now(),
+      operation: {
+        id: operation.id,
+        type: operation.type,
+        args: operation.args,
+        priority: operation.priority
+      },
+      queueLength: this.readOperationQueue().length
+    });
+    
+    // ログサイズを制限
+    if (log.length > 1000) {
+      log.splice(0, log.length - 1000);
+    }
+    
+    this.writeOperationLog(log);
+  }
+
+  /**
+   * 同期の実行
+   */
+  async performSync() {
+    if (this.syncInProgress) {
+      console.log('[OfflineSync] 同期が既に進行中です');
+      return;
+    }
+
+    const queue = this.readOperationQueue();
+    if (queue.length === 0) {
+      console.log('[OfflineSync] 同期する操作がありません');
+      return;
+    }
+
+    console.log(`[OfflineSync] ${queue.length}件の操作を同期開始`);
+    this.syncInProgress = true;
+    this.syncState.lastSyncAttempt = Date.now();
+    this.saveSyncState();
+    
+    this.showSyncModal();
+
+    try {
+      const result = await this.processOperationQueue(queue);
+      console.log('[OfflineSync] 同期完了:', result);
+      
+      // 成功した操作をキューから削除
+      this.writeOperationQueue(result.remaining);
+      
+      // 同期状態を更新
+      this.syncState.lastSuccessfulSync = Date.now();
+      this.syncState.syncErrors = [];
+      this.saveSyncState();
+      
+      // 成功通知を表示
+      if (result.processed.length > 0) {
+        this.showSuccessNotification(`${result.processed.length}件の操作を同期しました`);
+      }
+      
+      // キャッシュを更新
+      await this.refreshCache();
+      
+    } catch (error) {
+      console.error('[OfflineSync] 同期エラー:', error);
+      this.handleSyncError(error);
+    } finally {
+      this.syncInProgress = false;
+      this.hideSyncModal();
+    }
+  }
+
+  /**
+   * 操作キューの処理
+   */
+  async processOperationQueue(queue) {
+    const remaining = [];
+    const processed = [];
+    const errors = [];
+    const conflicts = [];
+
+    for (const operation of queue) {
+      try {
+        console.log(`[OfflineSync] 処理中: ${operation.type} (ID: ${operation.id})`);
+        
+        // 前提条件のチェック
+        if (!this.validatePrecondition(operation)) {
+          conflicts.push(operation);
+          console.warn(`[OfflineSync] 前提条件の競合: ${operation.type} (ID: ${operation.id})`);
+          continue;
+        }
+        
+        const result = await this.executeOperation(operation);
+        
+        if (result.success) {
+          processed.push({ ...operation, result, syncedAt: Date.now() });
+          console.log(`[OfflineSync] 成功: ${operation.type} (ID: ${operation.id})`);
+        } else {
+          // リトライ可能なエラーの場合
+          if (operation.retryCount < OFFLINE_CONFIG.MAX_RETRY_COUNT) {
+            operation.retryCount++;
+            operation.status = 'retry';
+            remaining.push(operation);
+            console.log(`[OfflineSync] リトライ予定: ${operation.type} (ID: ${operation.id}) - ${operation.retryCount}/${OFFLINE_CONFIG.MAX_RETRY_COUNT}`);
+          } else {
+            operation.status = 'failed';
+            errors.push({ ...operation, error: result.error });
+            console.error(`[OfflineSync] 失敗: ${operation.type} (ID: ${operation.id}) - 最大リトライ回数に達しました`);
+          }
+        }
+      } catch (error) {
+        console.error(`[OfflineSync] エラー: ${operation.type} (ID: ${operation.id})`, error);
+        errors.push({ ...operation, error: error.message });
+      }
+    }
+
+    return {
+      processed,
+      remaining,
+      errors,
+      conflicts,
+      successCount: processed.length,
+      errorCount: errors.length,
+      conflictCount: conflicts.length
+    };
+  }
+
+  /**
+   * 前提条件の検証
+   */
+  validatePrecondition(operation) {
+    try {
+      const { group, day, timeslot } = this.extractContext(operation.args);
+      if (!group || !day || !timeslot) return true;
+      
+      const cache = this.readCache(group, day, timeslot);
+      if (!cache || !operation.precondition) return true;
+      
+      // キャッシュのバージョンが前提条件と一致するかチェック
+      return cache.version === operation.precondition.version;
+    } catch (error) {
+      console.warn('[OfflineSync] 前提条件の検証に失敗:', error);
+      return true; // エラーの場合は検証をスキップ
+    }
+  }
+
+  /**
+   * 個別操作の実行
+   */
+  async executeOperation(operation) {
+    const { type, args } = operation;
+    
+    try {
+      const gasAPI = await this.waitForGasAPI();
+      
+      switch (type) {
+        case OPERATION_TYPES.RESERVE_SEATS:
+          return await gasAPI.reserveSeats(...args);
+        case OPERATION_TYPES.CHECK_IN_SEATS:
+          return await gasAPI.checkInMultipleSeats(...args);
+        case OPERATION_TYPES.UPDATE_SEAT_DATA:
+          return await gasAPI.updateSeatData(...args);
+        case OPERATION_TYPES.ASSIGN_WALKIN:
+          return await gasAPI.assignWalkInSeats(...args);
+        case OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE:
+          return await gasAPI.assignWalkInConsecutiveSeats(...args);
+        default:
+          return { success: false, error: `未知の操作タイプ: ${type}` };
+      }
+    } catch (error) {
+      console.error(`[OfflineSync] 操作実行エラー: ${type}`, error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * 競合解決の実行
+   */
+  async resolveConflicts(conflicts) {
+    console.log(`[OfflineSync] ${conflicts.length}件の競合を解決中...`);
+    
+    for (const conflict of conflicts) {
+      try {
+        // 最新のデータを取得
+        const { group, day, timeslot } = this.extractContext(conflict.args);
+        if (group && day && timeslot) {
+          const gasAPI = await this.waitForGasAPI();
+          const freshData = await gasAPI.getSeatDataMinimal(group, day, timeslot, false);
+          
+          if (freshData && freshData.success) {
+            // キャッシュを更新
+            this.writeCache(group, day, timeslot, freshData);
+            
+            // 操作を再試行
+            const result = await this.executeOperation(conflict);
+            if (result.success) {
+              console.log(`[OfflineSync] 競合解決成功: ${conflict.type} (ID: ${conflict.id})`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error(`[OfflineSync] 競合解決エラー: ${conflict.type} (ID: ${conflict.id})`, error);
+      }
+    }
+  }
+
+  /**
+   * キャッシュの更新
+   */
+  async refreshCache() {
+    try {
+      const { group, day, timeslot } = this.getCurrentContext();
+      if (group && day && timeslot) {
+        console.log('[OfflineSync] キャッシュを更新中...');
+        const gasAPI = await this.waitForGasAPI();
+        const freshData = await gasAPI.getSeatDataMinimal(group, day, timeslot, false);
+        
+        if (freshData && freshData.success) {
+          this.writeCache(group, day, timeslot, freshData);
+          console.log('[OfflineSync] キャッシュ更新完了');
+        }
+      }
+    } catch (error) {
+      console.error('[OfflineSync] キャッシュ更新エラー:', error);
+    }
+  }
+
+  /**
+   * エラーハンドリング
+   */
+  handleSyncError(error) {
+    this.syncState.syncErrors.push({
+      timestamp: Date.now(),
+      error: error.message,
+      retryCount: this.syncState.retryCount || 0
+    });
+    
+    if (this.syncState.retryCount < OFFLINE_CONFIG.MAX_RETRY_COUNT) {
+      this.syncState.retryCount++;
+      console.log(`[OfflineSync] リトライ ${this.syncState.retryCount}/${OFFLINE_CONFIG.MAX_RETRY_COUNT} を ${OFFLINE_CONFIG.RETRY_DELAY_MS}ms後に実行`);
+      
+      this.retryTimeout = setTimeout(() => {
+        this.performSync();
+      }, OFFLINE_CONFIG.RETRY_DELAY_MS);
+    } else {
+      console.error('[OfflineSync] 最大リトライ回数に達しました');
+      this.notifySyncFailure();
+    }
+    
+    this.saveSyncState();
+  }
+
+  /**
+   * 同期失敗の通知
+   */
+  notifySyncFailure() {
+    const notification = document.createElement('div');
+    notification.className = 'sync-failure-notification';
+    notification.innerHTML = `
+      <div class="notification-content">
+        <h4>同期エラー</h4>
+        <p>オフライン操作の同期に失敗しました。手動で同期を試してください。</p>
+        <button onclick="OfflineSyncV2.retrySync()">再試行</button>
+        <button onclick="OfflineSyncV2.showQueueStatus()">詳細表示</button>
+        <button onclick="this.parentElement.parentElement.remove()">閉じる</button>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+  }
+
+  /**
+   * バックグラウンド同期の開始
+   */
+  startBackgroundSync() {
+    if (this.backgroundSyncInterval) {
+      clearInterval(this.backgroundSyncInterval);
+    }
+    
+    this.backgroundSyncInterval = setInterval(() => {
+      if (this.isOnline && !this.syncInProgress && this.readOperationQueue().length > 0) {
+        this.performSync();
+      }
+    }, OFFLINE_CONFIG.BACKGROUND_SYNC_INTERVAL);
+  }
+
+  /**
+   * バックグラウンド同期の停止
+   */
+  stopBackgroundSync() {
+    if (this.backgroundSyncInterval) {
+      clearInterval(this.backgroundSyncInterval);
+      this.backgroundSyncInterval = null;
+    }
+  }
+
+  /**
+   * オフラインオーバーライドのインストール
+   */
+  async installOfflineOverrides() {
+    if (!OFFLINE_CONFIG.ENABLED) return;
+    
+    try {
+      const gasAPI = await this.waitForGasAPI();
+      if (!gasAPI) return;
+      
+      console.log('[OfflineSync] オフライン操作モードに切り替え');
+      
+      // 元のメソッドを保存
+      const originalMethods = {
+        reserveSeats: gasAPI.reserveSeats,
+        checkInMultipleSeats: gasAPI.checkInMultipleSeats,
+        updateSeatData: gasAPI.updateSeatData,
+        assignWalkInSeats: gasAPI.assignWalkInSeats,
+        assignWalkInConsecutiveSeats: gasAPI.assignWalkInConsecutiveSeats
+      };
+
+      // 予約のオフライン対応
+      gasAPI.reserveSeats = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalMethods.reserveSeats(...args);
+          } catch (error) {
+            console.log('[OfflineSync] オンライン予約失敗、オフライン操作として処理');
+            const operationId = this.addOperation({ type: OPERATION_TYPES.RESERVE_SEATS, args });
+            return { 
+              success: true, 
+              message: 'オフラインで予約を受け付けました', 
+              offline: true, 
+              operationId 
+            };
+          }
+        } else {
+          const operationId = this.addOperation({ type: OPERATION_TYPES.RESERVE_SEATS, args });
+          return { 
+            success: true, 
+            message: 'オフラインで予約を受け付けました', 
+            offline: true, 
+            operationId 
+          };
+        }
+      };
+
+      // チェックインのオフライン対応
+      gasAPI.checkInMultipleSeats = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalMethods.checkInMultipleSeats(...args);
+          } catch (error) {
+            console.log('[OfflineSync] オンラインチェックイン失敗、オフライン操作として処理');
+            const operationId = this.addOperation({ type: OPERATION_TYPES.CHECK_IN_SEATS, args });
+            return { 
+              success: true, 
+              message: 'オフラインでチェックインを受け付けました', 
+              offline: true, 
+              operationId 
+            };
+          }
+        } else {
+          const operationId = this.addOperation({ type: OPERATION_TYPES.CHECK_IN_SEATS, args });
+          return { 
+            success: true, 
+            message: 'オフラインでチェックインを受け付けました', 
+            offline: true, 
+            operationId 
+          };
+        }
+      };
+
+      // 座席データ更新のオフライン対応
+      gasAPI.updateSeatData = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalMethods.updateSeatData(...args);
+          } catch (error) {
+            console.log('[OfflineSync] オンライン更新失敗、オフライン操作として処理');
+            const operationId = this.addOperation({ type: OPERATION_TYPES.UPDATE_SEAT_DATA, args });
+            return { 
+              success: true, 
+              message: 'オフラインで更新を受け付けました', 
+              offline: true, 
+              operationId 
+            };
+          }
+        } else {
+          const operationId = this.addOperation({ type: OPERATION_TYPES.UPDATE_SEAT_DATA, args });
+          return { 
+            success: true, 
+            message: 'オフラインで更新を受け付けました', 
+            offline: true, 
+            operationId 
+          };
+        }
+      };
+
+      // 当日券発行のオフライン対応
+      gasAPI.assignWalkInSeats = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalMethods.assignWalkInSeats(...args);
+          } catch (error) {
+            console.log('[OfflineSync] オンライン当日券発行失敗、オフライン操作として処理');
+            const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
+            return { 
+              success: true, 
+              message: 'オフラインで当日券発行を受け付けました', 
+              offline: true, 
+              operationId 
+            };
+          }
+        } else {
+          const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN, args });
+          return { 
+            success: true, 
+            message: 'オフラインで当日券発行を受け付けました', 
+            offline: true, 
+            operationId 
+          };
+        }
+      };
+
+      gasAPI.assignWalkInConsecutiveSeats = async (...args) => {
+        if (this.isOnline) {
+          try {
+            return await originalMethods.assignWalkInConsecutiveSeats(...args);
+          } catch (error) {
+            console.log('[OfflineSync] オンライン連続席発行失敗、オフライン操作として処理');
+            const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE, args });
+            return { 
+              success: true, 
+              message: 'オフラインで連続席発行を受け付けました', 
+              offline: true, 
+              operationId 
+            };
+          }
+        } else {
+          const operationId = this.addOperation({ type: OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE, args });
+          return { 
+            success: true, 
+            message: 'オフラインで連続席発行を受け付けました', 
+            offline: true, 
+            operationId 
+          };
+        }
+      };
+      
+    } catch (error) {
+      console.error('[OfflineSync] オフラインオーバーライドのインストールに失敗:', error);
+    }
+  }
+
+  /**
+   * 同期モーダルの表示
+   */
+  showSyncModal() {
+    try {
+      const existing = document.getElementById('sync-modal-v2');
+      if (existing) existing.remove();
+
+      const modalHTML = `
+        <div id="sync-modal-v2" class="modal" style="display: block; z-index: 10000;">
+          <div class="modal-content" style="text-align: center; max-width: 450px;">
+            <div class="spinner"></div>
+            <h3>オフライン操作を同期中...</h3>
+            <p>しばらくお待ちください。操作はできません。</p>
+            <div class="sync-progress">
+              <div class="progress-bar">
+                <div class="progress-fill"></div>
+              </div>
+            </div>
+            <div class="sync-status">
+              <p>同期状況: <span id="sync-status-text">処理中...</span></p>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.body.insertAdjacentHTML('beforeend', modalHTML);
+      console.log('[OfflineSync] 同期モーダルを表示');
+    } catch (error) {
+      console.error('[OfflineSync] モーダル表示エラー:', error);
+    }
+  }
+
+  /**
+   * 同期モーダルの非表示
+   */
+  hideSyncModal() {
+    try {
+      const modal = document.getElementById('sync-modal-v2');
+      if (modal) {
+        modal.remove();
+        console.log('[OfflineSync] 同期モーダルを非表示');
+      }
+    } catch (error) {
+      console.error('[OfflineSync] モーダル非表示エラー:', error);
+    }
+  }
+
+  /**
+   * 成功通知の表示
+   */
+  showSuccessNotification(message) {
+    const notification = document.createElement('div');
+    notification.className = 'success-notification';
+    notification.innerHTML = `
+      <div class="notification-content">
+        <span class="notification-icon">✓</span>
+        <span class="notification-message">${message}</span>
+        <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.remove();
+      }
+    }, 4000);
+  }
+
+  /**
+   * GasAPIの待機
+   */
+  async waitForGasAPI() {
+    return new Promise((resolve) => {
+      const checkAPI = () => {
+        if (window.GasAPI) {
+          resolve(window.GasAPI);
+        } else {
+          setTimeout(checkAPI, 100);
+        }
+      };
+      checkAPI();
+    });
+  }
+
+  /**
+   * 現在のコンテキストを取得
+   */
+  getCurrentContext() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return {
+        group: params.get('group'),
+        day: params.get('day'),
+        timeslot: params.get('timeslot')
+      };
+    } catch (error) {
+      console.error('[OfflineSync] コンテキスト取得エラー:', error);
+      return {};
+    }
+  }
+
+  /**
+   * 操作のコンテキストを抽出
+   */
+  extractContext(args) {
+    try {
+      if (Array.isArray(args) && args.length >= 3) {
+        return {
+          group: args[0],
+          day: args[1],
+          timeslot: args[2]
+        };
+      }
+    } catch (error) {
+      console.warn('[OfflineSync] コンテキスト抽出エラー:', error);
+    }
+    return {};
+  }
+
+  /**
+   * 操作キューの読み取り
+   */
+  readOperationQueue() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.OPERATION_QUEUE);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('[OfflineSync] キュー読み取りエラー:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 操作キューの書き込み
+   */
+  writeOperationQueue(queue) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.OPERATION_QUEUE, JSON.stringify(queue));
+    } catch (error) {
+      console.error('[OfflineSync] キュー書き込みエラー:', error);
+    }
+  }
+
+  /**
+   * 操作ログの読み取り
+   */
+  readOperationLog() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.OPERATION_LOG);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('[OfflineSync] ログ読み取りエラー:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 操作ログの書き込み
+   */
+  writeOperationLog(log) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.OPERATION_LOG, JSON.stringify(log));
+    } catch (error) {
+      console.error('[OfflineSync] ログ書き込みエラー:', error);
+    }
+  }
+
+  /**
+   * キャッシュの読み取り
+   */
+  readCache(group, day, timeslot) {
+    try {
+      const key = `${STORAGE_KEYS.CACHE_DATA}_${group}-${day}-${timeslot}`;
+      const data = localStorage.getItem(key);
+      if (!data) return null;
+      
+      const cache = JSON.parse(data);
+      
+      // キャッシュの有効期限チェック
+      if (cache.cachedAt && (Date.now() - cache.cachedAt) > OFFLINE_CONFIG.CACHE_EXPIRY_MS) {
+        localStorage.removeItem(key);
+        return null;
+      }
+      
+      return cache;
+    } catch (error) {
+      console.error('[OfflineSync] キャッシュ読み取りエラー:', error);
+      return null;
+    }
+  }
+
+  /**
+   * キャッシュの書き込み
+   */
+  writeCache(group, day, timeslot, data) {
+    try {
+      const key = `${STORAGE_KEYS.CACHE_DATA}_${group}-${day}-${timeslot}`;
+      const cacheData = {
+        ...data,
+        cachedAt: Date.now(),
+        version: Date.now().toString() // バージョン管理
+      };
+      localStorage.setItem(key, JSON.stringify(cacheData));
+    } catch (error) {
+      console.error('[OfflineSync] キャッシュ書き込みエラー:', error);
+    }
+  }
+
+  /**
+   * 同期状態の読み取り
+   */
+  loadSyncState() {
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.SYNC_STATE);
+      return data ? JSON.parse(data) : {
+        retryCount: 0,
+        lastSyncAttempt: 0,
+        lastSuccessfulSync: 0,
+        lastOnlineTime: 0,
+        lastOfflineTime: 0,
+        syncErrors: []
+      };
+    } catch (error) {
+      console.error('[OfflineSync] 同期状態読み取りエラー:', error);
+      return {
+        retryCount: 0,
+        lastSyncAttempt: 0,
+        lastSuccessfulSync: 0,
+        lastOnlineTime: 0,
+        lastOfflineTime: 0,
+        syncErrors: []
+      };
+    }
+  }
+
+  /**
+   * 同期状態の保存
+   */
+  saveSyncState() {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SYNC_STATE, JSON.stringify(this.syncState));
+    } catch (error) {
+      console.error('[OfflineSync] 同期状態保存エラー:', error);
+    }
+  }
+
+  /**
+   * システムの状態を取得
+   */
+  getSystemStatus() {
+    return {
+      isOnline: this.isOnline,
+      syncInProgress: this.syncInProgress,
+      retryCount: this.syncState.retryCount,
+      lastSyncAttempt: this.syncState.lastSyncAttempt,
+      lastSuccessfulSync: this.syncState.lastSuccessfulSync,
+      lastOnlineTime: this.syncState.lastOnlineTime,
+      lastOfflineTime: this.syncState.lastOfflineTime,
+      syncErrors: this.syncState.syncErrors,
+      queueLength: this.readOperationQueue().length,
+      cacheInfo: this.getCacheInfo()
+    };
+  }
+
+  /**
+   * キャッシュ情報の取得
+   */
+  getCacheInfo() {
+    const { group, day, timeslot } = this.getCurrentContext();
+    if (group && day && timeslot) {
+      const cache = this.readCache(group, day, timeslot);
+      return {
+        exists: !!cache,
+        cachedAt: cache ? cache.cachedAt : null,
+        version: cache ? cache.version : null,
+        seatCount: cache && cache.seatMap ? Object.keys(cache.seatMap).length : 0
+      };
+    }
+    return null;
+  }
+
+  /**
+   * システムの初期化
+   */
+  initialize() {
+    console.log('[OfflineSync] オフライン同期システム v2.0 を初期化中...');
+    
+    // 初回: 現在ページの座席が未キャッシュなら最低限の雛形を用意
+    try {
+      const { group, day, timeslot } = this.getCurrentContext();
+      if (group && day && timeslot && !this.readCache(group, day, timeslot)) {
+        this.writeCache(group, day, timeslot, { seatMap: {} });
+      }
+    } catch (error) {
+      console.error('[OfflineSync] 初期化エラー:', error);
+    }
+
+    // オフライン状態の確認
+    if (!this.isOnline) {
+      this.handleOffline();
+    }
+
+    console.log('[OfflineSync] 初期化完了');
+  }
+}
+
+// グローバルインスタンスの作成
+const offlineOperationManager = new OfflineOperationManager();
+
+// グローバル関数（設定用）
+window.OfflineSyncV2 = {
+  // 状態管理
+  getStatus: () => offlineOperationManager.getSystemStatus(),
+  
+  // 同期制御
+  sync: () => offlineOperationManager.performSync(),
+  retrySync: () => offlineOperationManager.performSync(),
+  
+  // キュー管理
+  getQueue: () => offlineOperationManager.readOperationQueue(),
+  clearQueue: () => offlineOperationManager.writeOperationQueue([]),
+  
+  // キャッシュ管理
+  getCache: () => offlineOperationManager.getCacheInfo(),
+  clearCache: () => {
+    const { group, day, timeslot } = offlineOperationManager.getCurrentContext();
+    if (group && day && timeslot) {
+      localStorage.removeItem(`${STORAGE_KEYS.CACHE_DATA}_${group}-${day}-${timeslot}`);
+      console.log('[OfflineSyncV2] キャッシュをクリアしました');
+    }
+  },
+  
+  // 操作管理
+  addOperation: (operation) => offlineOperationManager.addOperation(operation),
+  
+  // 競合解決
+  resolveConflicts: () => offlineOperationManager.resolveConflicts([]),
+  
+  // キューステータスの表示
+  showQueueStatus: () => {
+    const queue = offlineOperationManager.readOperationQueue();
+    const status = offlineOperationManager.getSystemStatus();
+    
+    console.log('[OfflineSyncV2] キューステータス:', {
+      queueLength: queue.length,
+      systemStatus: status,
+      queue: queue
+    });
+    
+    // モーダルで表示
+    const modalHTML = `
+      <div id="queue-status-modal" class="modal" style="display: block; z-index: 10000;">
+        <div class="modal-content" style="max-width: 600px;">
+          <h3>オフライン操作キュー状況</h3>
+          <div class="queue-status">
+            <p><strong>キュー長:</strong> ${queue.length}</p>
+            <p><strong>オンライン状態:</strong> ${status.isOnline ? 'オンライン' : 'オフライン'}</p>
+            <p><strong>同期状況:</strong> ${status.syncInProgress ? '同期中' : '待機中'}</p>
+            <p><strong>最後の同期:</strong> ${status.lastSuccessfulSync ? new Date(status.lastSuccessfulSync).toLocaleString('ja-JP') : 'なし'}</p>
+          </div>
+          <div class="queue-items">
+            <h4>待機中の操作 (${queue.length}件)</h4>
+            ${queue.map(op => `
+              <div class="queue-item">
+                <strong>${op.type}</strong> - ${new Date(op.timestamp).toLocaleString('ja-JP')}
+                <br>ステータス: ${op.status} (リトライ: ${op.retryCount}/${OFFLINE_CONFIG.MAX_RETRY_COUNT})
+              </div>
+            `).join('')}
+          </div>
+          <div class="modal-buttons">
+            <button onclick="OfflineSyncV2.sync()">今すぐ同期</button>
+            <button onclick="OfflineSyncV2.clearQueue()">キューをクリア</button>
+            <button onclick="document.getElementById('queue-status-modal').remove()">閉じる</button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+  },
+  
+  // デバッグ機能
+  debug: async () => {
+    console.log('[OfflineSyncV2] システム状態:', offlineOperationManager.getSystemStatus());
+    
+    // GAS接続テスト
+    try {
+      const gasAPI = await offlineOperationManager.waitForGasAPI();
+      const testResult = await gasAPI.testApi();
+      console.log('[OfflineSyncV2] GAS接続テスト:', testResult);
+    } catch (error) {
+      console.error('[OfflineSyncV2] GAS接続テスト失敗:', error);
+    }
+    
+    // 現在の座席データを取得
+    try {
+      const gasAPI = await offlineOperationManager.waitForGasAPI();
+      const { group, day, timeslot } = offlineOperationManager.getCurrentContext();
+      if (group && day && timeslot) {
+        const seatData = await gasAPI.getSeatDataMinimal(group, day, timeslot, false);
+        console.log('[OfflineSyncV2] 現在の座席データ:', seatData);
+      }
+    } catch (error) {
+      console.error('[OfflineSyncV2] 座席データ取得失敗:', error);
+    }
+  }
+};
+
+// システムの初期化
+document.addEventListener('DOMContentLoaded', () => {
+  offlineOperationManager.initialize();
+});
+
+// 既存の関数との互換性を保つ
+function isOffline() { return !offlineOperationManager.isOnline; }
+async function onOnline() { await offlineOperationManager.handleOnline(); }
+async function onOffline() { await offlineOperationManager.handleOffline(); }
+async function flushQueue() { await offlineOperationManager.performSync(); }
+function showSyncModal() { offlineOperationManager.showSyncModal(); }
+function hideSyncModal() { offlineOperationManager.hideSyncModal(); }
+function readQueue() { return offlineOperationManager.readOperationQueue(); }
+function writeQueue(queue) { offlineOperationManager.writeOperationQueue(queue); }
+function readCache(group, day, timeslot) { return offlineOperationManager.readCache(group, day, timeslot); }
+function writeCache(group, day, timeslot, data) { offlineOperationManager.writeCache(group, day, timeslot, data); }
+function enqueue(operation) { offlineOperationManager.addOperation(operation); }
+async function installOfflineOverrides() { await offlineOperationManager.installOfflineOverrides(); }

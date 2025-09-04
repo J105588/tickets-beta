@@ -1,0 +1,458 @@
+/* ===============================================================
+   オフライン同期システム v2.0 用CSSスタイル
+   =============================================================== */
+
+/* 同期モーダル */
+#sync-modal-v2 {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10000;
+}
+
+#sync-modal-v2 .modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  text-align: center;
+  max-width: 450px;
+  width: 90%;
+}
+
+#sync-modal-v2 h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 1.4em;
+}
+
+#sync-modal-v2 p {
+  margin: 0 0 20px 0;
+  color: #666;
+  line-height: 1.5;
+}
+
+/* スピナー */
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 20px auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* プログレスバー */
+.sync-progress {
+  margin: 20px 0;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2ecc71);
+  width: 0%;
+  animation: progress 2s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+@keyframes progress {
+  0% { width: 0%; }
+  50% { width: 70%; }
+  100% { width: 100%; }
+}
+
+/* 同期状況 */
+.sync-status {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 5px;
+  border-left: 4px solid #3498db;
+}
+
+.sync-status p {
+  margin: 0;
+  font-size: 0.9em;
+  color: #555;
+}
+
+#sync-status-text {
+  font-weight: bold;
+  color: #3498db;
+}
+
+/* 成功通知 */
+.success-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+  border-radius: 5px;
+  padding: 15px 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10001;
+  max-width: 400px;
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.success-notification .notification-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.success-notification .notification-icon {
+  font-size: 1.2em;
+  color: #28a745;
+}
+
+.success-notification .notification-message {
+  flex: 1;
+  font-size: 0.9em;
+}
+
+.success-notification .notification-close {
+  background: none;
+  border: none;
+  color: #155724;
+  font-size: 1.2em;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.success-notification .notification-close:hover {
+  background-color: rgba(21, 87, 36, 0.1);
+}
+
+/* 同期失敗通知 */
+.sync-failure-notification {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  border-radius: 8px;
+  padding: 25px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  z-index: 10002;
+  max-width: 500px;
+  width: 90%;
+  text-align: center;
+}
+
+.sync-failure-notification h4 {
+  margin: 0 0 15px 0;
+  color: #721c24;
+  font-size: 1.3em;
+}
+
+.sync-failure-notification p {
+  margin: 0 0 20px 0;
+  line-height: 1.5;
+}
+
+.sync-failure-notification button {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  margin: 0 5px;
+  font-size: 0.9em;
+  transition: background-color 0.2s;
+}
+
+.sync-failure-notification button:hover {
+  background: #c82333;
+}
+
+.sync-failure-notification button:first-of-type {
+  background: #007bff;
+}
+
+.sync-failure-notification button:first-of-type:hover {
+  background: #0056b3;
+}
+
+/* キューステータスモーダル */
+#queue-status-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10003;
+}
+
+#queue-status-modal .modal-content {
+  background: white;
+  padding: 30px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+#queue-status-modal h3 {
+  margin: 0 0 20px 0;
+  color: #333;
+  font-size: 1.5em;
+  text-align: center;
+}
+
+.queue-status {
+  background: #f8f9fa;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #007bff;
+}
+
+.queue-status p {
+  margin: 8px 0;
+  font-size: 0.95em;
+  color: #555;
+}
+
+.queue-status strong {
+  color: #333;
+}
+
+.queue-items {
+  margin-bottom: 25px;
+}
+
+.queue-items h4 {
+  margin: 0 0 15px 0;
+  color: #333;
+  font-size: 1.2em;
+  border-bottom: 2px solid #e9ecef;
+  padding-bottom: 8px;
+}
+
+.queue-item {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 5px;
+  padding: 15px;
+  margin-bottom: 10px;
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.queue-item strong {
+  color: #007bff;
+  font-size: 1em;
+}
+
+.modal-buttons {
+  text-align: center;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.modal-buttons button {
+  background: #007bff;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.95em;
+  transition: background-color 0.2s;
+  min-width: 120px;
+}
+
+.modal-buttons button:hover {
+  background: #0056b3;
+}
+
+.modal-buttons button:last-child {
+  background: #6c757d;
+}
+
+.modal-buttons button:last-child:hover {
+  background: #545b62;
+}
+
+/* オフライン状態インジケーター */
+.offline-indicator {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  background: #dc3545;
+  color: white;
+  padding: 8px 15px;
+  border-radius: 20px;
+  font-size: 0.8em;
+  font-weight: bold;
+  z-index: 9999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.offline-indicator.online {
+  background: #28a745;
+  animation: none;
+}
+
+/* 同期進行状況バー */
+.sync-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: #f0f0f0;
+  z-index: 10004;
+}
+
+.sync-progress-bar .progress {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2ecc71);
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  #sync-modal-v2 .modal-content,
+  #queue-status-modal .modal-content {
+    width: 95%;
+    padding: 20px;
+  }
+  
+  .modal-buttons {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .modal-buttons button {
+    width: 100%;
+    max-width: 200px;
+  }
+  
+  .success-notification {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  .sync-failure-notification {
+    width: 95%;
+    padding: 20px;
+  }
+}
+
+/* ダークモード対応 */
+@media (prefers-color-scheme: dark) {
+  #sync-modal-v2 .modal-content,
+  #queue-status-modal .modal-content {
+    background: #2d3748;
+    color: #e2e8f0;
+  }
+  
+  #sync-modal-v2 h3,
+  #queue-status-modal h3,
+  #queue-status-modal h4 {
+    color: #e2e8f0;
+  }
+  
+  #sync-modal-v2 p,
+  #queue-status-modal p {
+    color: #a0aec0;
+  }
+  
+  .queue-status {
+    background: #4a5568;
+    border-left-color: #3182ce;
+  }
+  
+  .queue-status p {
+    color: #cbd5e0;
+  }
+  
+  .queue-status strong {
+    color: #e2e8f0;
+  }
+  
+  .queue-item {
+    background: #4a5568;
+    border-color: #718096;
+    color: #e2e8f0;
+  }
+  
+  .queue-item strong {
+    color: #63b3ed;
+  }
+  
+  .sync-status {
+    background-color: #4a5568;
+    border-left-color: #3182ce;
+  }
+  
+  .sync-status p {
+    color: #cbd5e0;
+  }
+  
+  #sync-status-text {
+    color: #63b3ed;
+  }
+}

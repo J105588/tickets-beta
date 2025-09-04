@@ -22,11 +22,15 @@ class GasAPI {
               script.parentNode.removeChild(script); // スクリプトタグを削除
             }
             
+            // レスポンスデータの詳細をログに出力
+            console.log(`API Response for ${functionName}:`, data);
+            
             // success: falseの場合も正常なレスポンスとして扱う
             if (data && typeof data === 'object') {
               resolve(data);
             } else {
               // エラーレスポンスでもresolveして、呼び出し側で処理
+              console.warn(`Invalid API response for ${functionName}:`, data);
               resolve({ success: false, error: '無効なAPIレスポンスです', data: data });
             }
           } catch (e) {

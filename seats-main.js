@@ -25,9 +25,12 @@ let interactionTimeout = null; // 操作終了を検知するためのタイマ�
 const apiEndpoint = GAS_API_URL;
 // GasAPIはstaticメソッドを使用するため、インスタンス化は不要
 
-// 初期化
-window.onload = async () => {
-  loadSidebar();
+  // 初期化
+  window.onload = async () => {
+    loadSidebar();
+    
+    // オフライン状態インジケーターの初期化
+    initializeOfflineIndicator();
 
   const groupName = isNaN(parseInt(GROUP)) ? GROUP : GROUP + '組';
   const performanceInfo = document.getElementById('performance-info');
@@ -750,17 +753,26 @@ async function checkInSelected() {
       showLoader(false);
       
       // エラーメッセージを表示
-      showErrorNotification(`チェックインエラー：\n${response.message}`);
+      console.error('チェックインAPIエラーレスポンス:', response);
+      const errorMessage = response.message || response.error || '不明なエラーが発生しました';
+      showErrorNotification(`チェックインエラー：\n${errorMessage}`);
       
       // 座席データを再取得してUIを復元
       await refreshSeatData();
     }
   } catch (error) {
     console.error('チェックインエラー:', error);
+    console.error('エラー詳細:', {
+      message: error.message,
+      error: error.error,
+      success: error.success,
+      stack: error.stack
+    });
     
     // エラー時：UIを元に戻す
     showLoader(false);
-    showErrorNotification(`チェックインエラー：\n${error.message}`);
+    const errorMessage = error.message || error.error || '不明なエラーが発生しました';
+    showErrorNotification(`チェックインエラー：\n${errorMessage}`);
     
     // 座席データを再取得してUIを復元
     await refreshSeatData();
@@ -844,17 +856,26 @@ async function confirmReservation() {
     } else {
       // エラー時：UIを元に戻す
       showLoader(false);
-      showErrorNotification(`予約エラー：\n${response.message}`);
+      console.error('予約APIエラーレスポンス:', response);
+      const errorMessage = response.message || response.error || '不明なエラーが発生しました';
+      showErrorNotification(`予約エラー：\n${errorMessage}`);
       
       // 座席データを再取得してUIを復元
       await refreshSeatData();
     }
   } catch (error) {
     console.error('予約エラー:', error);
+    console.error('エラー詳細:', {
+      message: error.message,
+      error: error.error,
+      success: error.success,
+      stack: error.stack
+    });
     
     // エラー時：UIを元に戻す
     showLoader(false);
-    showErrorNotification(`予約エラー：\n${error.message}`);
+    const errorMessage = error.message || error.error || '不明なエラーが発生しました';
+    showErrorNotification(`予約エラー：\n${errorMessage}`);
     
     // 座席データを再取得してUIを復元
     await refreshSeatData();
@@ -1215,6 +1236,62 @@ async function refreshSeatData() {
     }
   } catch (error) {
     console.error('座席データ復元エラー:', error);
+  }
+}
+
+// オフライン状態インジケーターの制御
+function initializeOfflineIndicator() {
+  const indicator = document.getElementById('offline-indicator');
+  const progressBar = document.getElementById('sync-progress-bar');
+  
+  if (!indicator || !progressBar) return;
+  
+  // オフライン状態の監視
+  const updateOfflineStatus = () => {
+    const isOnline = navigator.onLine;
+    if (isOnline) {
+      indicator.style.display = 'none';
+      indicator.textContent = 'オンライン';
+      indicator.classList.add('online');
+    } else {
+      indicator.style.display = 'block';
+      indicator.textContent = 'オフライン';
+      indicator.classList.remove('online');
+    }
+  };
+  
+  // 初期状態の設定
+  updateOfflineStatus();
+  
+  // イベントリスナーの設定
+  window.addEventListener('online', updateOfflineStatus);
+  window.addEventListener('offline', updateOfflineStatus);
+  
+  // オフライン同期システムの状態監視
+  if (window.OfflineSyncV2) {
+    const checkSyncStatus = () => {
+      const status = window.OfflineSyncV2.getStatus();
+      
+      if (status.syncInProgress) {
+        progressBar.style.display = 'block';
+        const progress = progressBar.querySelector('.progress');
+        if (progress) {
+          progress.style.width = '100%';
+        }
+      } else {
+        progressBar.style.display = 'none';
+        const progress = progressBar.querySelector('.progress');
+        if (progress) {
+          progress.style.width = '0%';
+        }
+      }
+    };
+    
+    // 定期的に状態をチェック
+    setInterval(checkSyncStatus, 1000);
+    
+    // 初期状態のチェック
+    checkSyncStatus();
   }
 }
 
