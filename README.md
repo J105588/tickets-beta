@@ -789,38 +789,36 @@ changeSuperAdminPassword('mySecurePassword'); // カスタムパスワード
 ```mermaid
 sequenceDiagram
   participant U as ユーザー
-  participant P as Page(HTML/JS)
+  participant P as Page
   participant SW as Service Worker
   participant O as OfflineSyncV2
-  participant A as API(JSONP)
+  participant A as API
   participant G as GAS
   participant S as Spreadsheet
 
-  U->>P: 座席を選択/操作
+  U->>P: ページ操作（予約/チェックイン）
   alt オフライン
-    P->>O: 操作をenqueue（キューへ保存）
-    Note right of O: localStorageに永続化
-    P-->>U: UIに"オフラインで受付"表示
+    P->>O: 操作をenqueue（キュー保存）
+    Note right of O: localStorageへ永続化
+    P-->>U: オフライン受付通知
   else オンライン
     P->>A: JSONP呼び出し
-    A->>G: doGet/JSONP
+    A->>G: doGet(JSONP)
     G->>S: 書き込み
     S-->>G: 完了
-    G-->>A: { success: true }
-    A-->>P: 反映
+    G-->>A: 成功レスポンス
+    A-->>P: UI反映
   end
-  Note over SW: 事前に開いたHTML/JS/CSSはキャッシュから提供
 
-  == オンライン復帰 ==
-  P->>O: onlineイベント検知
-  O->>A: キューの操作を順次送信（元メソッドで実施）
+  Note over P: オンライン復帰
+  O->>A: キュー操作を順次送信（元メソッド）
   A->>G: JSONP
   G->>S: 反映
   S-->>G: 完了
-  G-->>A: { success }
+  G-->>A: 成功レスポンス
   A-->>O: 応答
   O->>O: 成功操作をキューから削除
-  O->>P: 成功/失敗通知、キャッシュ再取得
+  O->>P: 通知・キャッシュ更新
 ```
 
 ### 競合とリトライ
@@ -864,15 +862,15 @@ if ('serviceWorker' in navigator) {
 ## 🧭 オフライン同期アーキテクチャ（更新版）
 ```mermaid
 graph TB
-  subgraph フロント
-    UI[HTML/CSS/JS]
-    SW[Service Worker]
-    OSV2[OfflineSyncV2]
-    API[api.js(JSONP)]
+  subgraph Frontend
+    UI["HTML/CSS/JS"]
+    SW["Service Worker"]
+    OSV2["OfflineSyncV2"]
+    API["api.js (JSONP)"]
   end
-  subgraph バックエンド
-    GAS[GAS Web App]
-    SS[Google Spreadsheet]
+  subgraph Backend
+    GAS["GAS Web App"]
+    SS["Google Spreadsheet"]
   end
 
   UI --> SW
