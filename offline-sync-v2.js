@@ -1123,7 +1123,77 @@ class OfflineOperationManager {
       await this.handleOffline();
     }
 
+    // どのページでも同期を確認・実行できるフローティングウィジェットを注入
+    try { this.injectFloatingSyncWidget(); } catch (_) {}
+
     console.log('[OfflineSync] 初期化完了');
+  }
+
+  /**
+   * どのページでも同期状況を確認・実行できる軽量フローティングウィジェット
+   */
+  injectFloatingSyncWidget() {
+    if (document.getElementById('offline-sync-widget')) return;
+
+    const widget = document.createElement('div');
+    widget.id = 'offline-sync-widget';
+    widget.setAttribute('aria-live', 'polite');
+    widget.style.position = 'fixed';
+    widget.style.right = '10px';
+    widget.style.bottom = '56px';
+    widget.style.zIndex = '10005';
+    widget.style.display = 'flex';
+    widget.style.gap = '6px';
+    widget.style.alignItems = 'center';
+
+    const buttonStyle = 'background:#007bff;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)';
+    const pillStyle = 'background:#6c757d;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.15)';
+
+    const statusPill = document.createElement('span');
+    statusPill.id = 'offline-sync-widget-status';
+    statusPill.style.cssText = pillStyle;
+    statusPill.textContent = '同期: 待機中';
+
+    const queuePill = document.createElement('span');
+    queuePill.id = 'offline-sync-widget-queue';
+    queuePill.style.cssText = pillStyle;
+    queuePill.textContent = 'キュー: 0';
+
+    const syncBtn = document.createElement('button');
+    syncBtn.style.cssText = buttonStyle;
+    syncBtn.textContent = '今すぐ同期';
+    syncBtn.onclick = () => {
+      try { OfflineSyncV2.sync(); } catch (_) {}
+    };
+
+    const detailBtn = document.createElement('button');
+    detailBtn.style.cssText = buttonStyle.replace('#007bff', '#17a2b8');
+    detailBtn.textContent = '詳細';
+    detailBtn.onclick = () => {
+      try { OfflineSyncV2.showQueueStatus(); } catch (_) {}
+    };
+
+    widget.appendChild(statusPill);
+    widget.appendChild(queuePill);
+    widget.appendChild(syncBtn);
+    widget.appendChild(detailBtn);
+    document.body.appendChild(widget);
+
+    const refresh = () => {
+      try {
+        const status = this.getSystemStatus();
+        const isOnline = status.isOnline;
+        const inProgress = status.syncInProgress;
+        const queueLen = status.queueLength;
+        statusPill.textContent = `状態: ${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}`;
+        queuePill.textContent = `キュー: ${queueLen}`;
+        // ボタンの有効/無効
+        syncBtn.disabled = inProgress || queueLen === 0;
+        syncBtn.style.opacity = syncBtn.disabled ? '0.6' : '1';
+      } catch (_) {}
+    };
+    refresh();
+    setInterval(refresh, 2000);
   }
 }
 
