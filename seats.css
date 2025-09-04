@@ -571,7 +571,7 @@ input:checked+.slider:before {
     transform: rotate(90deg);
 }
 
-.gear-icon {
+.auto-refresh-settings-btn::before {
     content: "";
     width: 20px;
     height: 20px;
