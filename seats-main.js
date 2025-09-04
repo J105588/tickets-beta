@@ -100,6 +100,24 @@ const apiEndpoint = GAS_API_URL;
     const isAdminMode = currentMode === 'admin' || IS_ADMIN;
     const isSuperAdminMode = currentMode === 'superadmin';
     
+    // オフライン時はキャッシュから復元（サーバーへ取りに行かない）
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      const cached = (window.readCache ? window.readCache(GROUP, DAY, TIMESLOT) : null);
+      if (cached && cached.seatMap) {
+        console.log('[Offline] キャッシュから座席データを復元');
+        drawSeatMap(cached.seatMap);
+        updateLastUpdateTime();
+        const toggleCheckbox = document.getElementById('auto-refresh-toggle-checkbox');
+        if (toggleCheckbox) {
+          toggleCheckbox.checked = isAutoRefreshEnabled;
+          toggleCheckbox.addEventListener('change', toggleAutoRefresh);
+        }
+        startAutoRefresh();
+        return;
+      }
+      // キャッシュがない場合のみ以降の処理に進む
+    }
+    
     console.log('GasAPI.getSeatData呼び出し:', { GROUP, DAY, TIMESLOT, isAdminMode, isSuperAdminMode });
     const seatData = await GasAPI.getSeatData(GROUP, DAY, TIMESLOT, isAdminMode, isSuperAdminMode);
     
@@ -117,6 +135,22 @@ const apiEndpoint = GAS_API_URL;
     
     // エラーハンドリングの改善
     if (!seatData || seatData.success === false) {
+      // オフライン委譲レスポンス: キャッシュから復元
+      if (seatData && seatData.offline && seatData.error === 'offline_delegate') {
+        const cached = (window.readCache ? window.readCache(GROUP, DAY, TIMESLOT) : null);
+        if (cached && cached.seatMap) {
+          console.log('[Offline] オフライン委譲検出、キャッシュから座席データを復元');
+          drawSeatMap(cached.seatMap);
+          updateLastUpdateTime();
+          const toggleCheckbox = document.getElementById('auto-refresh-toggle-checkbox');
+          if (toggleCheckbox) {
+            toggleCheckbox.checked = isAutoRefreshEnabled;
+            toggleCheckbox.addEventListener('change', toggleAutoRefresh);
+          }
+          startAutoRefresh();
+          return;
+        }
+      }
       const errorMsg = seatData?.error || seatData?.message || 'データ読み込みに失敗しました';
       console.error('座席データ読み込み失敗:', errorMsg);
       
@@ -136,6 +170,8 @@ const apiEndpoint = GAS_API_URL;
       return;
     }
 
+    // オンライン取得成功時はキャッシュに保存
+    try { if (window.writeCache) { window.writeCache(GROUP, DAY, TIMESLOT, seatData); } } catch (_) {}
     drawSeatMap(seatData.seatMap);
     updateLastUpdateTime();
     updateSelectedSeatsDisplay(); // 初期化時に選択された座席数を更新
@@ -263,6 +299,16 @@ function startAutoRefresh() {
         const isAdminMode = currentMode === 'admin' || IS_ADMIN;
         const isSuperAdminMode = currentMode === 'superadmin';
         
+        // オフライン時はネットワークに行かずキャッシュのみ
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          const cached = (window.readCache ? window.readCache(GROUP, DAY, TIMESLOT) : null);
+          if (cached && cached.seatMap) {
+            updateSeatMapWithMinimalData(cached.seatMap);
+            updateLastUpdateTime();
+          }
+          return;
+        }
+
         // 最適化: 通常の自動更新時は最小限のデータを取得
         let seatData;
         if (isAdminMode || isSuperAdminMode) {
@@ -274,6 +320,7 @@ function startAutoRefresh() {
         }
         
         if (seatData.success) {
+          try { if (window.writeCache) { window.writeCache(GROUP, DAY, TIMESLOT, seatData); } } catch (_) {}
           // 最小限データの場合は既存の座席データとマージ
           if (seatData.seatMap && Object.keys(seatData.seatMap).length > 0) {
             // 既存の座席データを保持しつつ、ステータスのみ更新
@@ -613,9 +660,22 @@ async function manualRefresh() {
     const isAdminMode = currentMode === 'admin' || IS_ADMIN;
     const isSuperAdminMode = currentMode === 'superadmin';
     
+    // オフライン時はキャッシュから復元
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      const cached = (window.readCache ? window.readCache(GROUP, DAY, TIMESLOT) : null);
+      if (cached && cached.seatMap) {
+        console.log('[Offline] 手動更新でキャッシュを使用');
+        drawSeatMap(cached.seatMap);
+        updateLastUpdateTime();
+        alert('オフラインのためキャッシュから表示しています');
+        return;
+      }
+    }
+    
     const seatData = await GasAPI.getSeatData(GROUP, DAY, TIMESLOT, isAdminMode, isSuperAdminMode);
     
     if (seatData.success) {
+      try { if (window.writeCache) { window.writeCache(GROUP, DAY, TIMESLOT, seatData); } } catch (_) {}
       drawSeatMap(seatData.seatMap);
       updateLastUpdateTime();
       alert('座席データを更新しました');

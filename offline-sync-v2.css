@@ -329,8 +329,8 @@
 /* オフライン状態インジケーター */
 .offline-indicator {
   position: fixed;
-  top: 10px;
-  left: 10px;
+  bottom: 10px;
+  right: 10px;
   background: #dc3545;
   color: white;
   padding: 8px 15px;

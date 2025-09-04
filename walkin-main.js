@@ -83,6 +83,9 @@ window.onload = async () => {
       }
     });
   }
+
+  // オフラインインジケーター初期化（軽量処理）
+  initializeOfflineIndicator();
 };
 
 // 当日券モードのアクセス制限をチェックする関数
@@ -170,6 +173,15 @@ async function issueWalkinConsecutive() {
       }
       reservationResult.classList.add('show');
     } else {
+      // オフライン委譲レスポンスの処理
+      if (response.error === 'offline_delegate' && response.functionName && response.params) {
+        if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+          window.OfflineSyncV2.addOperation({ type: response.functionName, args: response.params });
+          showLoader(false);
+          showSuccessNotification('オフラインで当日券を受け付けました。オンライン復帰時に自動同期されます。');
+          return;
+        }
+      }
       showLoader(false);
       showErrorNotification(response.message || '連続席が見つかりませんでした。');
     }
@@ -219,6 +231,15 @@ async function issueWalkinAnywhere() {
       }
       reservationResult.classList.add('show');
     } else {
+      // オフライン委譲レスポンスの処理
+      if (response.error === 'offline_delegate' && response.functionName && response.params) {
+        if (window.OfflineSyncV2 && window.OfflineSyncV2.addOperation) {
+          window.OfflineSyncV2.addOperation({ type: response.functionName, args: response.params });
+          showLoader(false);
+          showSuccessNotification('オフラインで当日券を受け付けました。オンライン復帰時に自動同期されます。');
+          return;
+        }
+      }
       showLoader(false);
       showErrorNotification(response.message || '空席が見つかりませんでした。');
     }
@@ -229,6 +250,47 @@ async function issueWalkinAnywhere() {
     showErrorNotification(`当日券発行中にエラーが発生しました: ${errorMessage}`);
   } finally {
     _isIssuingWalkin = false;
+  }
+}
+
+// オフライン状態インジケーターの制御（軽量版）
+function initializeOfflineIndicator() {
+  const indicator = document.getElementById('offline-indicator');
+  const progressBar = document.getElementById('sync-progress-bar');
+  if (!indicator || !progressBar) return;
+
+  const updateOfflineStatus = () => {
+    const isOnline = navigator.onLine;
+    if (isOnline) {
+      indicator.style.display = 'none';
+      indicator.textContent = 'オンライン';
+      indicator.classList.add('online');
+    } else {
+      indicator.style.display = 'block';
+      indicator.textContent = 'オフライン';
+      indicator.classList.remove('online');
+    }
+  };
+
+  updateOfflineStatus();
+  window.addEventListener('online', updateOfflineStatus);
+  window.addEventListener('offline', updateOfflineStatus);
+
+  if (window.OfflineSyncV2) {
+    const checkSyncStatus = () => {
+      const status = window.OfflineSyncV2.getStatus();
+      if (status.syncInProgress) {
+        progressBar.style.display = 'block';
+        const progress = progressBar.querySelector('.progress');
+        if (progress) progress.style.width = '100%';
+      } else {
+        progressBar.style.display = 'none';
+        const progress = progressBar.querySelector('.progress');
+        if (progress) progress.style.width = '0%';
+      }
+    };
+    setInterval(checkSyncStatus, 1000);
+    checkSyncStatus();
   }
 }
 

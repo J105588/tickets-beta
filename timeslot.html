@@ -11,10 +11,19 @@
   <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/J105588/video-nazuna/main/images/IMG_5316.png">
   <link rel="stylesheet" href="styles.css">
   <link rel="stylesheet" href="sidebar.css">
+  <link rel="stylesheet" href="offline-sync-v2.css">
 </head>
 <body>
 
   <div id="sidebar-container"></div>
+
+  <!-- オフライン状態インジケーター -->
+  <div id="offline-indicator" class="offline-indicator" style="display: none;">オフライン</div>
+
+  <!-- 同期進行状況バー -->
+  <div id="sync-progress-bar" class="sync-progress-bar" style="display: none;">
+    <div class="progress"></div>
+  </div>
 
   <div id="main-content">
     <header class="page-header">
@@ -53,6 +62,6 @@
   <script type="module" src="sidebar.js"></script>
   <script type="module" src="timeslot-main.js"></script>
   <script type="module" src="system-lock.js"></script>
-  <script src="offline-sync.js"></script>
+  <script src="offline-sync-v2.js"></script>
 </body>
 </html>

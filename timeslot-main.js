@@ -29,6 +29,9 @@ import * as timeSlotConfig from './timeslot-schedules.js';
   // 時間帯データを読み込んで表示
   loadTimeslots(group);
 
+  // オフラインインジケーター初期化（軽量処理で他機能に影響なし）
+  initializeOfflineIndicator();
+
   // --- グローバル関数の登録 ---
   // HTMLの onclick="..." から呼び出せるように、関数をwindowオブジェクトに登録します。
   window.toggleSidebar = toggleSidebar;
@@ -118,6 +121,47 @@ async function loadTimeslots(group) {
   } catch (error) {
     console.error('時間帯データの読み込みエラー:', error);
     timeslotContainer.innerHTML = '<p>時間帯データの読み込みに失敗しました。</p>';
+  }
+}
+
+// オフライン状態インジケーターの制御（軽量版）
+function initializeOfflineIndicator() {
+  const indicator = document.getElementById('offline-indicator');
+  const progressBar = document.getElementById('sync-progress-bar');
+  if (!indicator || !progressBar) return;
+
+  const updateOfflineStatus = () => {
+    const isOnline = navigator.onLine;
+    if (isOnline) {
+      indicator.style.display = 'none';
+      indicator.textContent = 'オンライン';
+      indicator.classList.add('online');
+    } else {
+      indicator.style.display = 'block';
+      indicator.textContent = 'オフライン';
+      indicator.classList.remove('online');
+    }
+  };
+
+  updateOfflineStatus();
+  window.addEventListener('online', updateOfflineStatus);
+  window.addEventListener('offline', updateOfflineStatus);
+
+  if (window.OfflineSyncV2) {
+    const checkSyncStatus = () => {
+      const status = window.OfflineSyncV2.getStatus();
+      if (status.syncInProgress) {
+        progressBar.style.display = 'block';
+        const progress = progressBar.querySelector('.progress');
+        if (progress) progress.style.width = '100%';
+      } else {
+        progressBar.style.display = 'none';
+        const progress = progressBar.querySelector('.progress');
+        if (progress) progress.style.width = '0%';
+      }
+    };
+    setInterval(checkSyncStatus, 1000);
+    checkSyncStatus();
   }
 }
 
