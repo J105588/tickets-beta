@@ -6,11 +6,11 @@
 const OFFLINE_CONFIG = {
   ENABLED: true,
   SYNC_INTERVAL_MS: 15000, // 15秒
-  MAX_RETRY_COUNT: 5,
-  RETRY_DELAY_MS: 3000, // 3秒
+  MAX_RETRY_COUNT: 3, // リトライ回数を減らす
+  RETRY_DELAY_MS: 5000, // リトライ間隔を延長
   MAX_QUEUE_SIZE: 1000,
   SYNC_TIMEOUT_MS: 60000, // 60秒
-  BACKGROUND_SYNC_INTERVAL: 30000, // 30秒
+  BACKGROUND_SYNC_INTERVAL: 60000, // バックグラウンド同期間隔を延長（60秒）
   CACHE_EXPIRY_MS: 300000 // 5分
 };
 
@@ -256,8 +256,20 @@ class OfflineOperationManager {
     
     this.showSyncModal();
 
+    // タイムアウト処理
+    const timeoutId = setTimeout(() => {
+      if (this.syncInProgress) {
+        console.error('[OfflineSync] 同期タイムアウト');
+        this.syncInProgress = false;
+        this.hideSyncModal();
+        this.showErrorNotification('同期がタイムアウトしました。手動で再試行してください。');
+      }
+    }, OFFLINE_CONFIG.SYNC_TIMEOUT_MS);
+
     try {
       const result = await this.processOperationQueue(queue);
+      clearTimeout(timeoutId);
+      
       console.log('[OfflineSync] 同期完了:', result);
       
       // 成功した操作をキューから削除
@@ -273,12 +285,25 @@ class OfflineOperationManager {
         this.showSuccessNotification(`${result.processed.length}件の操作を同期しました`);
       }
       
+      // エラーが発生した操作がある場合の通知
+      if (result.errorCount > 0) {
+        this.showErrorNotification(`${result.errorCount}件の操作でエラーが発生しました`);
+      }
+      
       // キャッシュを更新
       await this.refreshCache();
       
     } catch (error) {
+      clearTimeout(timeoutId);
       console.error('[OfflineSync] 同期エラー:', error);
       this.handleSyncError(error);
+      
+      // エラーが発生した場合、キューをクリアして無限ループを防ぐ
+      const currentQueue = this.readOperationQueue();
+      if (currentQueue.length > 0) {
+        console.warn('[OfflineSync] 同期エラーのため、キューをクリアします');
+        this.writeOperationQueue([]);
+      }
     } finally {
       this.syncInProgress = false;
       this.hideSyncModal();
@@ -302,6 +327,8 @@ class OfflineOperationManager {
         if (!this.validatePrecondition(operation)) {
           conflicts.push(operation);
           console.warn(`[OfflineSync] 前提条件の競合: ${operation.type} (ID: ${operation.id})`);
+          // 競合した操作は再試行のためキューに残す
+          remaining.push(operation);
           continue;
         }
         
@@ -321,11 +348,22 @@ class OfflineOperationManager {
             operation.status = 'failed';
             errors.push({ ...operation, error: result.error });
             console.error(`[OfflineSync] 失敗: ${operation.type} (ID: ${operation.id}) - 最大リトライ回数に達しました`);
+            // 失敗した操作はキューから削除（再試行しない）
           }
         }
       } catch (error) {
         console.error(`[OfflineSync] エラー: ${operation.type} (ID: ${operation.id})`, error);
-        errors.push({ ...operation, error: error.message });
+        // 例外が発生した操作もリトライを試行
+        if (operation.retryCount < OFFLINE_CONFIG.MAX_RETRY_COUNT) {
+          operation.retryCount++;
+          operation.status = 'retry';
+          remaining.push(operation);
+          console.log(`[OfflineSync] 例外後リトライ予定: ${operation.type} (ID: ${operation.id}) - ${operation.retryCount}/${OFFLINE_CONFIG.MAX_RETRY_COUNT}`);
+        } else {
+          operation.status = 'failed';
+          errors.push({ ...operation, error: error.message });
+          console.error(`[OfflineSync] 例外後失敗: ${operation.type} (ID: ${operation.id}) - 最大リトライ回数に達しました`);
+        }
       }
     }
 
@@ -368,20 +406,31 @@ class OfflineOperationManager {
     try {
       const gasAPI = await this.waitForGasAPI();
       
+      console.log(`[OfflineSync] GAS API呼び出し: ${type}`, args);
+      
+      let result;
       switch (type) {
         case OPERATION_TYPES.RESERVE_SEATS:
-          return await gasAPI.reserveSeats(...args);
+          result = await gasAPI.reserveSeats(...args);
+          break;
         case OPERATION_TYPES.CHECK_IN_SEATS:
-          return await gasAPI.checkInMultipleSeats(...args);
+          result = await gasAPI.checkInMultipleSeats(...args);
+          break;
         case OPERATION_TYPES.UPDATE_SEAT_DATA:
-          return await gasAPI.updateSeatData(...args);
+          result = await gasAPI.updateSeatData(...args);
+          break;
         case OPERATION_TYPES.ASSIGN_WALKIN:
-          return await gasAPI.assignWalkInSeats(...args);
+          result = await gasAPI.assignWalkInSeats(...args);
+          break;
         case OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE:
-          return await gasAPI.assignWalkInConsecutiveSeats(...args);
+          result = await gasAPI.assignWalkInConsecutiveSeats(...args);
+          break;
         default:
-          return { success: false, error: `未知の操作タイプ: ${type}` };
+          result = { success: false, error: `未知の操作タイプ: ${type}` };
       }
+      
+      console.log(`[OfflineSync] GAS API応答: ${type}`, result);
+      return result;
     } catch (error) {
       console.error(`[OfflineSync] 操作実行エラー: ${type}`, error);
       return { success: false, error: error.message };
@@ -449,6 +498,18 @@ class OfflineOperationManager {
       error: error.message,
       retryCount: this.syncState.retryCount || 0
     });
+    
+    // 連続エラーが多すぎる場合は同期を停止
+    const recentErrors = this.syncState.syncErrors.filter(
+      e => Date.now() - e.timestamp < 300000 // 5分以内のエラー
+    );
+    
+    if (recentErrors.length > 10) {
+      console.error('[OfflineSync] 連続エラーが多すぎるため、同期を停止します');
+      this.stopBackgroundSync();
+      this.notifySyncFailure();
+      return;
+    }
     
     if (this.syncState.retryCount < OFFLINE_CONFIG.MAX_RETRY_COUNT) {
       this.syncState.retryCount++;
