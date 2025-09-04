@@ -9,7 +9,7 @@ const OFFLINE_CONFIG = {
   MAX_RETRY_COUNT: 3, // リトライ回数を減らす
   RETRY_DELAY_MS: 5000, // リトライ間隔を延長
   MAX_QUEUE_SIZE: 1000,
-  SYNC_TIMEOUT_MS: 60000, // 60秒
+  SYNC_TIMEOUT_MS: 30000, // 同期タイムアウトを30秒に短縮
   BACKGROUND_SYNC_INTERVAL: 60000, // バックグラウンド同期間隔を延長（60秒）
   CACHE_EXPIRY_MS: 300000 // 5分
 };
@@ -262,11 +262,19 @@ class OfflineOperationManager {
         console.error('[OfflineSync] 同期タイムアウト');
         this.syncInProgress = false;
         this.hideSyncModal();
-        this.showErrorNotification('同期がタイムアウトしました。手動で再試行してください。');
+        // エラー通知を安全に表示
+        try {
+          this.showErrorNotification('同期がタイムアウトしました。手動で再試行してください。');
+        } catch (error) {
+          console.error('[OfflineSync] エラー通知の表示に失敗:', error);
+          // フォールバック: アラートで表示
+          alert('同期がタイムアウトしました。手動で再試行してください。');
+        }
       }
     }, OFFLINE_CONFIG.SYNC_TIMEOUT_MS);
 
     try {
+      console.log('[OfflineSync] 操作キューの処理開始');
       const result = await this.processOperationQueue(queue);
       clearTimeout(timeoutId);
       
@@ -291,7 +299,9 @@ class OfflineOperationManager {
       }
       
       // キャッシュを更新
+      console.log('[OfflineSync] キャッシュ更新開始');
       await this.refreshCache();
+      console.log('[OfflineSync] キャッシュ更新完了');
       
     } catch (error) {
       clearTimeout(timeoutId);
@@ -305,6 +315,7 @@ class OfflineOperationManager {
         this.writeOperationQueue([]);
       }
     } finally {
+      console.log('[OfflineSync] 同期処理終了');
       this.syncInProgress = false;
       this.hideSyncModal();
     }
@@ -404,26 +415,38 @@ class OfflineOperationManager {
     const { type, args } = operation;
     
     try {
+      console.log(`[OfflineSync] GasAPI待機開始: ${type}`);
       const gasAPI = await this.waitForGasAPI();
+      console.log(`[OfflineSync] GasAPI取得完了: ${type}`);
       
       console.log(`[OfflineSync] GAS API呼び出し: ${type}`, args);
       
       let result;
       switch (type) {
         case OPERATION_TYPES.RESERVE_SEATS:
+          console.log(`[OfflineSync] reserveSeats呼び出し開始`);
           result = await gasAPI.reserveSeats(...args);
+          console.log(`[OfflineSync] reserveSeats呼び出し完了`);
           break;
         case OPERATION_TYPES.CHECK_IN_SEATS:
+          console.log(`[OfflineSync] checkInMultipleSeats呼び出し開始`);
           result = await gasAPI.checkInMultipleSeats(...args);
+          console.log(`[OfflineSync] checkInMultipleSeats呼び出し完了`);
           break;
         case OPERATION_TYPES.UPDATE_SEAT_DATA:
+          console.log(`[OfflineSync] updateSeatData呼び出し開始`);
           result = await gasAPI.updateSeatData(...args);
+          console.log(`[OfflineSync] updateSeatData呼び出し完了`);
           break;
         case OPERATION_TYPES.ASSIGN_WALKIN:
+          console.log(`[OfflineSync] assignWalkInSeats呼び出し開始`);
           result = await gasAPI.assignWalkInSeats(...args);
+          console.log(`[OfflineSync] assignWalkInSeats呼び出し完了`);
           break;
         case OPERATION_TYPES.ASSIGN_WALKIN_CONSECUTIVE:
+          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し開始`);
           result = await gasAPI.assignWalkInConsecutiveSeats(...args);
+          console.log(`[OfflineSync] assignWalkInConsecutiveSeats呼び出し完了`);
           break;
         default:
           result = { success: false, error: `未知の操作タイプ: ${type}` };
@@ -803,9 +826,14 @@ class OfflineOperationManager {
    * GasAPIの待機
    */
   async waitForGasAPI() {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('GasAPIの待機がタイムアウトしました'));
+      }, 10000); // 10秒でタイムアウト
+      
       const checkAPI = () => {
         if (window.GasAPI) {
+          clearTimeout(timeout);
           resolve(window.GasAPI);
         } else {
           setTimeout(checkAPI, 100);
@@ -1051,6 +1079,22 @@ window.OfflineSyncV2 = {
   // 同期制御
   sync: () => offlineOperationManager.performSync(),
   retrySync: () => offlineOperationManager.performSync(),
+  
+  // 強制同期（タイムアウトを無視）
+  forceSync: async () => {
+    console.log('[OfflineSyncV2] 強制同期を実行');
+    const queue = offlineOperationManager.readOperationQueue();
+    if (queue.length === 0) {
+      console.log('[OfflineSyncV2] 同期する操作がありません');
+      return;
+    }
+    
+    // 同期状態をリセット
+    offlineOperationManager.syncInProgress = false;
+    
+    // 同期を実行
+    await offlineOperationManager.performSync();
+  },
   
   // キュー管理
   getQueue: () => offlineOperationManager.readOperationQueue(),
