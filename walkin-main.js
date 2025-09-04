@@ -126,20 +126,24 @@ function checkWalkinModeAccess() {
 function showLoader(visible) {
   const loader = document.getElementById('loading-modal');
   if (loader) {
-    loader.style.display = visible ? 'block' : 'none';
+    if (visible) {
+      loader.classList.add('show');
+    } else {
+      loader.classList.remove('show');
+    }
   }
 }
 
 // モーダルを開く関数
 function openWalkinOptionModal() {
   const modal = document.getElementById('walkin-option-modal');
-  if (modal) modal.style.display = 'block';
+  if (modal) modal.classList.add('show');
 }
 
 // モーダルを閉じる関数
 function closeWalkinOptionModal() {
   const modal = document.getElementById('walkin-option-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) modal.classList.remove('show');
 }
 
 // 連続席で当日券を発行する関数

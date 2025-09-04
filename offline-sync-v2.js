@@ -1177,67 +1177,111 @@ class OfflineOperationManager {
   }
 
   openGlobalSettingsPanel() {
+    console.log('[OfflineSync] openGlobalSettingsPanel called');
+    
     // seats.html の自動更新設定パネルがあればそこに統合
     if (document.getElementById('auto-refresh-settings-panel')) {
+      console.log('[OfflineSync] Found auto-refresh-settings-panel, integrating with seats settings');
       try {
         // 既存のUIを開く（toggle関数があれば利用）
         try { if (window.toggleAutoRefreshSettings) { window.toggleAutoRefreshSettings(); } } catch (_) {}
         this.ensureOfflineSectionInSeatSettings(true /*focus*/);
         return;
-      } catch (_) {}
+      } catch (error) {
+        console.error('[OfflineSync] Error integrating with seats settings:', error);
+      }
     }
 
     // その他ページ: パネル形式で表示
+    console.log('[OfflineSync] Showing offline sync panel for non-seats page');
     this.showOfflineSyncPanel();
   }
 
   showOfflineSyncPanel() {
-    // 既存のパネルがあれば削除
-    const existing = document.getElementById('offline-sync-panel');
-    if (existing) { existing.remove(); }
-    
-    // オーバーレイを作成
-    const overlay = document.createElement('div');
-    overlay.id = 'offline-sync-overlay';
-    overlay.className = 'offline-sync-overlay';
-    overlay.onclick = () => this.closeOfflineSyncPanel();
-    
-    // パネルを作成
-    const panel = document.createElement('div');
-    panel.id = 'offline-sync-panel';
-    panel.className = 'offline-sync-panel';
-    panel.innerHTML = `
-      <h4>オフライン同期</h4>
-      <div class="offline-sync-controls">
-        ${this.renderOfflineControlsHTML()}
-      </div>
-      <div class="offline-sync-status" id="offline-sync-status">同期状況: 待機中</div>
-    `;
-    
-    document.body.appendChild(overlay);
-    document.body.appendChild(panel);
-    
-    // アニメーションで表示
-    setTimeout(() => {
-      overlay.classList.add('show');
-      panel.classList.add('show');
-    }, 10);
-    
-    this.hydrateOfflineControls();
+    try {
+      // 既存のモーダルがあれば削除
+      const existing = document.getElementById('offline-sync-card-modal');
+      if (existing) { existing.remove(); }
+      
+      const existingOverlay = document.getElementById('offline-sync-card-overlay');
+      if (existingOverlay) { existingOverlay.remove(); }
+      
+      // オーバーレイを作成
+      const overlay = document.createElement('div');
+      overlay.id = 'offline-sync-card-overlay';
+      overlay.className = 'offline-sync-card-overlay';
+      overlay.onclick = () => this.closeOfflineSyncPanel();
+      
+      // カードモーダルを作成
+      const modal = document.createElement('div');
+      modal.id = 'offline-sync-card-modal';
+      modal.className = 'offline-sync-card-modal';
+      
+      try {
+        modal.innerHTML = `
+          <h4>オフライン同期</h4>
+          <div class="offline-sync-card-controls">
+            ${this.renderOfflineControlsHTML()}
+          </div>
+          <div class="offline-sync-card-status" id="offline-sync-status">同期状況: 待機中</div>
+        `;
+      } catch (error) {
+        console.error('[OfflineSync] HTML generation error:', error);
+        modal.innerHTML = `
+          <h4>オフライン同期</h4>
+          <div class="offline-sync-card-controls">
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <span style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">❓ 状態不明</span>
+                <span style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">📋 キュー: 0</span>
+              </div>
+              <button disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
+              <button class="offline-sync-card-btn" style="background:linear-gradient(135deg, #17a2b8 0%, #138496 100%);">📊 詳細表示</button>
+            </div>
+          </div>
+          <div class="offline-sync-card-status" id="offline-sync-status">同期状況: エラー</div>
+        `;
+      }
+      
+      document.body.appendChild(overlay);
+      document.body.appendChild(modal);
+      
+      // アニメーションで表示
+      setTimeout(() => {
+        try {
+          overlay.classList.add('show');
+          modal.classList.add('show');
+        } catch (error) {
+          console.error('[OfflineSync] Animation error:', error);
+        }
+      }, 10);
+      
+      this.hydrateOfflineControls();
+    } catch (error) {
+      console.error('[OfflineSync] showOfflineSyncPanel error:', error);
+    }
   }
 
   closeOfflineSyncPanel() {
-    const panel = document.getElementById('offline-sync-panel');
-    const overlay = document.getElementById('offline-sync-overlay');
-    
-    if (panel && overlay) {
-      panel.classList.remove('show');
-      overlay.classList.remove('show');
+    try {
+      const modal = document.getElementById('offline-sync-card-modal');
+      const overlay = document.getElementById('offline-sync-card-overlay');
       
-      setTimeout(() => {
-        panel.remove();
-        overlay.remove();
-      }, 300);
+      if (modal && overlay) {
+        modal.classList.remove('show');
+        overlay.classList.remove('show');
+        
+        setTimeout(() => {
+          try {
+            modal.remove();
+            overlay.remove();
+          } catch (error) {
+            console.error('[OfflineSync] Cleanup error:', error);
+          }
+        }, 400);
+      }
+    } catch (error) {
+      console.error('[OfflineSync] closeOfflineSyncPanel error:', error);
     }
   }
 
@@ -1261,56 +1305,110 @@ class OfflineOperationManager {
   }
 
   renderOfflineControlsHTML() {
-    const status = this.getSystemStatus();
-    const isOnline = status.isOnline;
-    const inProgress = status.syncInProgress;
-    const queueLen = status.queueLength;
-    const disabled = (!isOnline) || inProgress || queueLen === 0 ? 'disabled' : '';
-    const disabledStyle = (!isOnline) || inProgress || queueLen === 0 ? 'opacity:.6;cursor:not-allowed;' : '';
-    return `
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <span id="sync-status-pill" style="background:#6c757d;color:#fff;border-radius:16px;padding:6px 10px;font-size:12px;">状態: ${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}</span>
-        <span id="sync-queue-pill" style="background:#6c757d;color:#fff;border-radius:16px;padding:6px 10px;font-size:12px;">キュー: ${queueLen}</span>
-        <button id="sync-now-btn" ${disabled} style="${disabledStyle}background:#007bff;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;">今すぐ同期</button>
-        <button id="sync-detail-btn" style="background:#17a2b8;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;">詳細</button>
-      </div>`;
+    try {
+      const status = this.getSystemStatus();
+      const isOnline = status?.isOnline ?? navigator.onLine;
+      const inProgress = status?.syncInProgress ?? false;
+      const queueLen = status?.queueLength ?? 0;
+      const disabled = (!isOnline) || inProgress || queueLen === 0 ? 'disabled' : '';
+      
+      // カードモーダル用のHTMLを返す
+      return `
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <span id="sync-status-pill" style="background:${inProgress ? '#ffc107' : (isOnline ? '#28a745' : '#dc3545')};color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">${inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン')}</span>
+            <span id="sync-queue-pill" style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">📋 キュー: ${queueLen}</span>
+          </div>
+          <button id="sync-now-btn" ${disabled} class="offline-sync-card-btn">🔄 今すぐ同期</button>
+          <button id="sync-detail-btn" class="offline-sync-card-btn" style="background:linear-gradient(135deg, #17a2b8 0%, #138496 100%);">📊 詳細表示</button>
+        </div>`;
+    } catch (error) {
+      console.error('[OfflineSync] renderOfflineControlsHTML error:', error);
+      // フォールバック用のHTML
+      return `
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <span id="sync-status-pill" style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">❓ 状態不明</span>
+            <span id="sync-queue-pill" style="background:#6c757d;color:#fff;border-radius:12px;padding:4px 8px;font-size:11px;font-weight:500;">📋 キュー: 0</span>
+          </div>
+          <button id="sync-now-btn" disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
+          <button id="sync-detail-btn" class="offline-sync-card-btn" style="background:linear-gradient(135deg, #17a2b8 0%, #138496 100%);">📊 詳細表示</button>
+        </div>`;
+    }
   }
 
   hydrateOfflineControls() {
-    const syncBtn = document.getElementById('sync-now-btn');
-    const detailBtn = document.getElementById('sync-detail-btn');
-    if (syncBtn) syncBtn.onclick = () => { try { OfflineSyncV2.sync(); } catch (_) {} };
-    if (detailBtn) detailBtn.onclick = () => { try { OfflineSyncV2.showQueueStatus(); } catch (_) {} };
-
-    // 状態の定期更新（軽量）
-    const update = () => {
-      try {
-        const status = this.getSystemStatus();
-        const isOnline = status.isOnline;
-        const inProgress = status.syncInProgress;
-        const queueLen = status.queueLength;
-        const statusPill = document.getElementById('sync-status-pill');
-        const queuePill = document.getElementById('sync-queue-pill');
-        if (statusPill) statusPill.textContent = `状態: ${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}`;
-        if (queuePill) queuePill.textContent = `キュー: ${queueLen}`;
-        if (syncBtn) {
-          const disabled = (!isOnline) || inProgress || queueLen === 0;
-          syncBtn.disabled = disabled;
-          syncBtn.style.opacity = disabled ? '0.6' : '1';
-          syncBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
-        }
-      } catch (_) {}
-    };
-    update();
-    // 過剰更新を避けて2秒間隔
-    const intervalId = setInterval(() => {
-      // DOMがなくなったら停止
-      if (!document.getElementById('sync-status-pill') && !document.getElementById('offline-sync-settings-section') && !document.getElementById('offline-sync-mini-modal')) {
-        clearInterval(intervalId);
-        return;
+    try {
+      const syncBtn = document.getElementById('sync-now-btn');
+      const detailBtn = document.getElementById('sync-detail-btn');
+      
+      if (syncBtn) {
+        syncBtn.onclick = () => { 
+          try { 
+            if (window.OfflineSyncV2 && window.OfflineSyncV2.sync) {
+              window.OfflineSyncV2.sync(); 
+            } else {
+              console.warn('[OfflineSync] OfflineSyncV2.sync not available');
+            }
+          } catch (error) {
+            console.error('[OfflineSync] sync error:', error);
+          } 
+        };
       }
+      
+      if (detailBtn) {
+        detailBtn.onclick = () => { 
+          try { 
+            if (window.OfflineSyncV2 && window.OfflineSyncV2.showQueueStatus) {
+              window.OfflineSyncV2.showQueueStatus(); 
+            } else {
+              console.warn('[OfflineSync] OfflineSyncV2.showQueueStatus not available');
+            }
+          } catch (error) {
+            console.error('[OfflineSync] showQueueStatus error:', error);
+          } 
+        };
+      }
+
+      // 状態の定期更新（軽量）
+      const update = () => {
+        try {
+          const status = this.getSystemStatus();
+          const isOnline = status?.isOnline ?? navigator.onLine;
+          const inProgress = status?.syncInProgress ?? false;
+          const queueLen = status?.queueLength ?? 0;
+          const statusPill = document.getElementById('sync-status-pill');
+          const queuePill = document.getElementById('sync-queue-pill');
+          
+          if (statusPill) {
+            statusPill.textContent = inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン');
+            statusPill.style.background = inProgress ? '#ffc107' : (isOnline ? '#28a745' : '#dc3545');
+          }
+          if (queuePill) queuePill.textContent = `📋 キュー: ${queueLen}`;
+          if (syncBtn) {
+            const disabled = (!isOnline) || inProgress || queueLen === 0;
+            syncBtn.disabled = disabled;
+            syncBtn.style.opacity = disabled ? '0.6' : '1';
+            syncBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+          }
+        } catch (error) {
+          console.error('[OfflineSync] update error:', error);
+        }
+      };
+      
       update();
-    }, 2000);
+      // 過剰更新を避けて2秒間隔
+      const intervalId = setInterval(() => {
+        // DOMがなくなったら停止
+        if (!document.getElementById('sync-status-pill') && !document.getElementById('offline-sync-settings-section') && !document.getElementById('offline-sync-card-modal')) {
+          clearInterval(intervalId);
+          return;
+        }
+        update();
+      }, 2000);
+    } catch (error) {
+      console.error('[OfflineSync] hydrateOfflineControls error:', error);
+    }
   }
 }
 

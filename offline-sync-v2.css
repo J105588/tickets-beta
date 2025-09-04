@@ -399,85 +399,140 @@
     width: 95%;
     padding: 20px;
   }
+  
+  /* オフライン同期カードモーダルのレスポンシブ対応 */
+  .offline-sync-card-modal {
+    left: 10px;
+    right: 10px;
+    min-width: auto;
+    max-width: none;
+    width: auto;
+  }
+  
+  .offline-sync-card-modal::after {
+    left: 20px;
+  }
 }
 
-/* オフライン同期パネル（seats.htmlの自動更新モジュールスタイル） */
-.offline-sync-panel {
+/* オフライン同期カードモーダル（吹き出しスタイル） */
+.offline-sync-card-modal {
   position: fixed;
   bottom: 80px;
   left: 20px;
   background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-  padding: 15px;
-  min-width: 250px;
-  transform: scale(0);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  padding: 20px;
+  min-width: 280px;
+  max-width: 320px;
+  transform: scale(0) translateY(20px);
   transform-origin: bottom left;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   opacity: 0;
-  z-index: 99;
+  z-index: 10007;
+  border: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.offline-sync-panel.show {
-  transform: scale(1);
+.offline-sync-card-modal.show {
+  transform: scale(1) translateY(0);
   opacity: 1;
 }
 
-.offline-sync-panel h4 {
-  margin: 0 0 15px 0;
-  font-size: 14px;
-  color: #333;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 8px;
+/* 吹き出しの矢印 */
+.offline-sync-card-modal::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 30px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: none;
+  border-right: none;
+  transform: rotate(-45deg);
+  box-shadow: -2px 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.offline-sync-controls {
+.offline-sync-card-modal h4 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  color: #333;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.offline-sync-card-modal h4::before {
+  content: '⚙️';
+  font-size: 14px;
+}
+
+.offline-sync-card-controls {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.offline-sync-btn {
-  padding: 6px 12px;
-  font-size: 12px;
+.offline-sync-card-btn {
+  padding: 10px 16px;
+  font-size: 13px;
   cursor: pointer;
-  background-color: #28a745;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
   width: 100%;
-  transition: background-color 0.2s;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
-.offline-sync-btn:hover {
-  background-color: #1e7e34;
+.offline-sync-card-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
 }
 
-.offline-sync-btn:disabled {
-  background-color: #6c757d;
+.offline-sync-card-btn:active {
+  transform: translateY(0);
+}
+
+.offline-sync-card-btn:disabled {
+  background: #e9ecef;
+  color: #6c757d;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
-.offline-sync-status {
-  font-size: 11px;
+.offline-sync-card-status {
+  font-size: 12px;
   color: #6c757d;
   text-align: center;
-  margin-top: 10px;
+  margin-top: 12px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #28a745;
 }
 
-.offline-sync-overlay {
+.offline-sync-card-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: transparent;
-  z-index: 98;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 10006;
   display: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
-.offline-sync-overlay.show {
+.offline-sync-card-overlay.show {
   display: block;
+  opacity: 1;
 }
 
 /* ダークモード対応 */

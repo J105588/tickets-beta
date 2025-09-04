@@ -220,7 +220,11 @@ function updateLastUpdateTime() {
 function showLoader(visible) {
   const loader = document.getElementById('loading-modal');
   if (loader) {
-    loader.style.display = visible ? 'block' : 'none';
+    if (visible) {
+      loader.classList.add('show');
+    } else {
+      loader.classList.remove('show');
+    }
   }
 }
 

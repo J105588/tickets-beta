@@ -18,7 +18,7 @@ const sidebarHTML = `
     </div>
   </div>
   <div id="sidebar-overlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
-  <div id="mode-change-modal" class="modal" style="display: none;">
+  <div id="mode-change-modal" class="modal">
     <div class="modal-content">
       <h3>モード変更</h3>
       <div class="mode-options">
@@ -60,11 +60,17 @@ function loadSidebar() {
 }
 
 function showModeChangeModal() {
-    document.getElementById("mode-change-modal").style.display = 'block';
+    const modal = document.getElementById("mode-change-modal");
+    if (modal) {
+        modal.classList.add('show');
+    }
 }
 
 function closeModeModal() {
-    document.getElementById("mode-change-modal").style.display = 'none';
+    const modal = document.getElementById("mode-change-modal");
+    if (modal) {
+        modal.classList.remove('show');
+    }
 }
 
 let _isApplyingModeChange = false;
