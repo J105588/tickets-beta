@@ -1123,77 +1123,147 @@ class OfflineOperationManager {
       await this.handleOffline();
     }
 
-    // どのページでも同期を確認・実行できるフローティングウィジェットを注入
-    try { this.injectFloatingSyncWidget(); } catch (_) {}
+    // どのページでも設定から同期操作できるボタン/メニューを注入
+    try { this.injectGlobalSettingsEntry(); } catch (_) {}
 
     console.log('[OfflineSync] 初期化完了');
   }
 
   /**
-   * どのページでも同期状況を確認・実行できる軽量フローティングウィジェット
+   * 左下の設定ボタンとメニューへオフライン同期の4要素を統合
+   * - 全ページで設定ボタンを表示
+   * - seats.html では既存の設定パネルにオフライン同期セクションを追加
+   * - その他ページでは軽量モーダルに4要素のみ表示
    */
-  injectFloatingSyncWidget() {
-    if (document.getElementById('offline-sync-widget')) return;
+  injectGlobalSettingsEntry() {
+    if (!document.getElementById('global-settings-button')) {
+      const btn = document.createElement('button');
+      btn.id = 'global-settings-button';
+      btn.title = '設定';
+      btn.style.position = 'fixed';
+      btn.style.left = '10px';
+      btn.style.bottom = '10px';
+      btn.style.zIndex = '10006';
+      btn.style.background = '#343a40';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+      btn.style.borderRadius = '20px';
+      btn.style.padding = '8px 12px';
+      btn.style.fontSize = '12px';
+      btn.style.cursor = 'pointer';
+      btn.style.boxShadow = '0 2px 8px rgba(0,0,0,.2)';
+      btn.textContent = '設定';
+      btn.onclick = () => this.openGlobalSettingsPanel();
+      document.body.appendChild(btn);
+    }
 
-    const widget = document.createElement('div');
-    widget.id = 'offline-sync-widget';
-    widget.setAttribute('aria-live', 'polite');
-    widget.style.position = 'fixed';
-    widget.style.right = '10px';
-    widget.style.bottom = '56px';
-    widget.style.zIndex = '10005';
-    widget.style.display = 'flex';
-    widget.style.gap = '6px';
-    widget.style.alignItems = 'center';
+    // seatsページの既存設定パネルにセクションを追加（存在する場合のみ）
+    this.ensureOfflineSectionInSeatSettings();
+  }
 
-    const buttonStyle = 'background:#007bff;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.15)';
-    const pillStyle = 'background:#6c757d;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,.15)';
+  openGlobalSettingsPanel() {
+    // seats.html の自動更新設定パネルがあればそこに統合
+    if (document.getElementById('auto-refresh-settings-panel')) {
+      try {
+        // 既存のUIを開く（toggle関数があれば利用）
+        try { if (window.toggleAutoRefreshSettings) { window.toggleAutoRefreshSettings(); } } catch (_) {}
+        this.ensureOfflineSectionInSeatSettings(true /*focus*/);
+        return;
+      } catch (_) {}
+    }
 
-    const statusPill = document.createElement('span');
-    statusPill.id = 'offline-sync-widget-status';
-    statusPill.style.cssText = pillStyle;
-    statusPill.textContent = '同期: 待機中';
+    // その他ページ: 軽量モーダルを表示
+    const existing = document.getElementById('offline-sync-mini-modal');
+    if (existing) { existing.remove(); }
+    const modal = document.createElement('div');
+    modal.id = 'offline-sync-mini-modal';
+    modal.style.position = 'fixed';
+    modal.style.inset = '0';
+    modal.style.background = 'rgba(0,0,0,0.4)';
+    modal.style.zIndex = '10007';
+    modal.innerHTML = `
+      <div style="background:#fff;max-width:420px;width:92%;margin:8vh auto;padding:18px 16px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.3)">
+        <h3 style="margin:0 0 12px 0;font-size:18px;">オフライン同期</h3>
+        ${this.renderOfflineControlsHTML()}
+        <div style="text-align:right;margin-top:12px;">
+          <button id="offline-sync-mini-close" style="background:#6c757d;color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;">閉じる</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+    document.getElementById('offline-sync-mini-close').onclick = () => modal.remove();
+    this.hydrateOfflineControls();
+  }
 
-    const queuePill = document.createElement('span');
-    queuePill.id = 'offline-sync-widget-queue';
-    queuePill.style.cssText = pillStyle;
-    queuePill.textContent = 'キュー: 0';
+  ensureOfflineSectionInSeatSettings(scrollIntoView = false) {
+    const panel = document.getElementById('auto-refresh-settings-panel');
+    if (!panel) return;
+    if (document.getElementById('offline-sync-settings-section')) return;
 
-    const syncBtn = document.createElement('button');
-    syncBtn.style.cssText = buttonStyle;
-    syncBtn.textContent = '今すぐ同期';
-    syncBtn.onclick = () => {
-      try { OfflineSyncV2.sync(); } catch (_) {}
-    };
+    const section = document.createElement('div');
+    section.id = 'offline-sync-settings-section';
+    section.style.marginTop = '12px';
+    section.innerHTML = `
+      <hr style="margin:10px 0;">
+      <h4 style="margin:0 0 8px 0;font-size:16px;">オフライン同期</h4>
+      ${this.renderOfflineControlsHTML()}`;
+    panel.appendChild(section);
+    this.hydrateOfflineControls();
+    if (scrollIntoView) {
+      try { section.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {}
+    }
+  }
 
-    const detailBtn = document.createElement('button');
-    detailBtn.style.cssText = buttonStyle.replace('#007bff', '#17a2b8');
-    detailBtn.textContent = '詳細';
-    detailBtn.onclick = () => {
-      try { OfflineSyncV2.showQueueStatus(); } catch (_) {}
-    };
+  renderOfflineControlsHTML() {
+    const status = this.getSystemStatus();
+    const isOnline = status.isOnline;
+    const inProgress = status.syncInProgress;
+    const queueLen = status.queueLength;
+    const disabled = (!isOnline) || inProgress || queueLen === 0 ? 'disabled' : '';
+    const disabledStyle = (!isOnline) || inProgress || queueLen === 0 ? 'opacity:.6;cursor:not-allowed;' : '';
+    return `
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <span id="sync-status-pill" style="background:#6c757d;color:#fff;border-radius:16px;padding:6px 10px;font-size:12px;">状態: ${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}</span>
+        <span id="sync-queue-pill" style="background:#6c757d;color:#fff;border-radius:16px;padding:6px 10px;font-size:12px;">キュー: ${queueLen}</span>
+        <button id="sync-now-btn" ${disabled} style="${disabledStyle}background:#007bff;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;">今すぐ同期</button>
+        <button id="sync-detail-btn" style="background:#17a2b8;color:#fff;border:none;border-radius:16px;padding:6px 10px;font-size:12px;">詳細</button>
+      </div>`;
+  }
 
-    widget.appendChild(statusPill);
-    widget.appendChild(queuePill);
-    widget.appendChild(syncBtn);
-    widget.appendChild(detailBtn);
-    document.body.appendChild(widget);
+  hydrateOfflineControls() {
+    const syncBtn = document.getElementById('sync-now-btn');
+    const detailBtn = document.getElementById('sync-detail-btn');
+    if (syncBtn) syncBtn.onclick = () => { try { OfflineSyncV2.sync(); } catch (_) {} };
+    if (detailBtn) detailBtn.onclick = () => { try { OfflineSyncV2.showQueueStatus(); } catch (_) {} };
 
-    const refresh = () => {
+    // 状態の定期更新（軽量）
+    const update = () => {
       try {
         const status = this.getSystemStatus();
         const isOnline = status.isOnline;
         const inProgress = status.syncInProgress;
         const queueLen = status.queueLength;
-        statusPill.textContent = `状態: ${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}`;
-        queuePill.textContent = `キュー: ${queueLen}`;
-        // ボタンの有効/無効
-        syncBtn.disabled = inProgress || queueLen === 0;
-        syncBtn.style.opacity = syncBtn.disabled ? '0.6' : '1';
+        const statusPill = document.getElementById('sync-status-pill');
+        const queuePill = document.getElementById('sync-queue-pill');
+        if (statusPill) statusPill.textContent = `状態: ${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}`;
+        if (queuePill) queuePill.textContent = `キュー: ${queueLen}`;
+        if (syncBtn) {
+          const disabled = (!isOnline) || inProgress || queueLen === 0;
+          syncBtn.disabled = disabled;
+          syncBtn.style.opacity = disabled ? '0.6' : '1';
+          syncBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+        }
       } catch (_) {}
     };
-    refresh();
-    setInterval(refresh, 2000);
+    update();
+    // 過剰更新を避けて2秒間隔
+    const intervalId = setInterval(() => {
+      // DOMがなくなったら停止
+      if (!document.getElementById('sync-status-pill') && !document.getElementById('offline-sync-settings-section') && !document.getElementById('offline-sync-mini-modal')) {
+        clearInterval(intervalId);
+        return;
+      }
+      update();
+    }, 2000);
   }
 }
 
