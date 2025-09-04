@@ -266,6 +266,11 @@ class GasAPI {
 
 export default GasAPI;
 
+// Expose GasAPI to window for non-module consumers (e.g., OfflineSync waiters)
+if (typeof window !== 'undefined') {
+  try { window.GasAPI = GasAPI; } catch (_) {}
+}
+
 // 安全なコンソールコマンド（最高管理者パスワードが必要）
 if (typeof window !== 'undefined') {
   window.SeatApp = window.SeatApp || {};

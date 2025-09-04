@@ -256,6 +256,17 @@ class OfflineOperationManager {
     
     this.showSyncModal();
 
+    // GasAPI readiness guard: if not ready, back off and retry
+    try {
+      await this.waitForGasAPI();
+    } catch (e) {
+      console.warn('[OfflineSync] GasAPI未準備のため、同期を後で再試行します:', e.message);
+      this.syncInProgress = false;
+      this.hideSyncModal();
+      setTimeout(() => { this.performSync(); }, OFFLINE_CONFIG.RETRY_DELAY_MS);
+      return;
+    }
+
     // タイムアウト処理
     const timeoutId = setTimeout(() => {
       if (this.syncInProgress) {
@@ -291,6 +302,12 @@ class OfflineOperationManager {
       // 成功通知を表示
       if (result.processed.length > 0) {
         this.showSuccessNotification(`${result.processed.length}件の操作を同期しました`);
+      }
+      
+      // 競合が残っている場合は自動解決を試行
+      if (result.conflictCount > 0 && Array.isArray(result.conflicts) && result.conflicts.length > 0) {
+        console.log('[OfflineSync] 競合の自動解決を試行します:', result.conflicts.length);
+        await this.resolveConflicts(result.conflicts);
       }
       
       // エラーが発生した操作がある場合の通知
@@ -395,13 +412,36 @@ class OfflineOperationManager {
   validatePrecondition(operation) {
     try {
       const { group, day, timeslot } = this.extractContext(operation.args);
-      if (!group || !day || !timeslot) return true;
+      if (!group || !day || !timeslot) {
+        console.log('[OfflineSync] 前提条件検証: コンテキスト情報が不完全');
+        return true;
+      }
       
       const cache = this.readCache(group, day, timeslot);
-      if (!cache || !operation.precondition) return true;
+      if (!cache) {
+        console.log('[OfflineSync] 前提条件検証: キャッシュが存在しない');
+        return true;
+      }
+      
+      if (!operation.precondition) {
+        console.log('[OfflineSync] 前提条件検証: 操作の前提条件が存在しない');
+        return true;
+      }
       
       // キャッシュのバージョンが前提条件と一致するかチェック
-      return cache.version === operation.precondition.version;
+      const isValid = cache.version === operation.precondition.version;
+      console.log(`[OfflineSync] 前提条件検証: ${isValid ? '有効' : '無効'} (cache: ${cache.version}, operation: ${operation.precondition.version})`);
+      
+      // オフライン操作の場合は前提条件を緩和
+      if (!isValid && operation.timestamp) {
+        const timeDiff = Date.now() - operation.timestamp;
+        if (timeDiff < 300000) { // 5分以内の操作は有効とする
+          console.log('[OfflineSync] 前提条件検証: 時間ベースで有効と判定');
+          return true;
+        }
+      }
+      
+      return isValid;
     } catch (error) {
       console.warn('[OfflineSync] 前提条件の検証に失敗:', error);
       return true; // エラーの場合は検証をスキップ
@@ -600,7 +640,14 @@ class OfflineOperationManager {
     if (!OFFLINE_CONFIG.ENABLED) return;
     
     try {
-      const gasAPI = await this.waitForGasAPI();
+      // GasAPIの待機を短時間で試行
+      const gasAPI = await Promise.race([
+        this.waitForGasAPI(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('GasAPI待機タイムアウト')), 5000)
+        )
+      ]);
+      
       if (!gasAPI) {
         console.warn('[OfflineSync] GasAPIが利用できません。オフラインオーバーライドをスキップします。');
         return;
