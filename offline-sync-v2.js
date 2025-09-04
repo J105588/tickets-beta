@@ -1147,7 +1147,7 @@ class OfflineOperationManager {
       btn.style.zIndex = '10006';
       btn.style.width = '44px';
       btn.style.height = '44px';
-      btn.style.background = 'rgba(0, 0, 0, 0.3)';
+      btn.style.background = 'rgba(0, 0, 0, 0.2)';
       btn.style.color = '#fff';
       btn.style.border = 'none';
       btn.style.borderRadius = '50%';
@@ -1155,15 +1155,14 @@ class OfflineOperationManager {
       btn.style.alignItems = 'center';
       btn.style.justifyContent = 'center';
       btn.style.cursor = 'pointer';
-      btn.style.boxShadow = '0 4px 12px rgba(0,0,0,.25)';
       btn.style.transition = 'transform .3s ease, background .3s ease, opacity .2s ease';
       btn.onmouseenter = () => { 
         btn.style.transform = 'scale(1.04) rotate(90deg)'; 
-        btn.style.background = 'rgba(0, 0, 0, 0.5)';
+        btn.style.background = 'rgba(0, 0, 0, 0.4)';
       };
       btn.onmouseleave = () => { 
         btn.style.transform = 'scale(1) rotate(0deg)'; 
-        btn.style.background = 'rgba(0, 0, 0, 0.3)';
+        btn.style.background = 'rgba(0, 0, 0, 0.2)';
       };
       btn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 15.5A3.5 3.5 0 0 1 8.5 12A3.5 3.5 0 0 1 12 8.5a3.5 3.5 0 0 1 3.5 3.5 3.5 3.5 0 0 1-3.5 3.5m7.43-2.53c.04-.32.07-.64.07-.97 0-.33-.03-.66-.07-1l2.11-1.63c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.31-.61-.22l-2.49 1c-.52-.39-1.06-.73-1.69-.98l-.37-2.65A.506.506 0 0 0 14 2h-4c-.25 0-.46.18-.5.42l-.37 2.65c-.63.25-1.17.59-1.69.98l-2.49-1c-.22-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64L4.57 11c-.04.34-.07.67-.07 1 0 .33.03.65.07.97l-2.11 1.66c-.19.15-.25.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1.01c.52.4 1.06.74 1.69.99l.37 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.37-2.65c.63-.26 1.17-.59 1.69-.99l2.49 1.01c.22.08.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.66Z" fill="white"/></svg>';
       btn.onclick = () => this.openGlobalSettingsPanel();
@@ -1188,26 +1187,58 @@ class OfflineOperationManager {
       } catch (_) {}
     }
 
-    // その他ページ: 軽量モーダルを表示
-    const existing = document.getElementById('offline-sync-mini-modal');
+    // その他ページ: パネル形式で表示
+    this.showOfflineSyncPanel();
+  }
+
+  showOfflineSyncPanel() {
+    // 既存のパネルがあれば削除
+    const existing = document.getElementById('offline-sync-panel');
     if (existing) { existing.remove(); }
-    const modal = document.createElement('div');
-    modal.id = 'offline-sync-mini-modal';
-    modal.style.position = 'fixed';
-    modal.style.inset = '0';
-    modal.style.background = 'rgba(0,0,0,0.4)';
-    modal.style.zIndex = '10007';
-    modal.innerHTML = `
-      <div style="background:#fff;max-width:420px;width:92%;margin:8vh auto;padding:18px 16px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.3)">
-        <h3 style="margin:0 0 12px 0;font-size:18px;">オフライン同期</h3>
+    
+    // オーバーレイを作成
+    const overlay = document.createElement('div');
+    overlay.id = 'offline-sync-overlay';
+    overlay.className = 'offline-sync-overlay';
+    overlay.onclick = () => this.closeOfflineSyncPanel();
+    
+    // パネルを作成
+    const panel = document.createElement('div');
+    panel.id = 'offline-sync-panel';
+    panel.className = 'offline-sync-panel';
+    panel.innerHTML = `
+      <h4>オフライン同期</h4>
+      <div class="offline-sync-controls">
         ${this.renderOfflineControlsHTML()}
-        <div style="text-align:right;margin-top:12px;">
-          <button id="offline-sync-mini-close" style="background:#6c757d;color:#fff;border:none;border-radius:6px;padding:8px 12px;cursor:pointer;">閉じる</button>
-        </div>
-      </div>`;
-    document.body.appendChild(modal);
-    document.getElementById('offline-sync-mini-close').onclick = () => modal.remove();
+      </div>
+      <div class="offline-sync-status" id="offline-sync-status">同期状況: 待機中</div>
+    `;
+    
+    document.body.appendChild(overlay);
+    document.body.appendChild(panel);
+    
+    // アニメーションで表示
+    setTimeout(() => {
+      overlay.classList.add('show');
+      panel.classList.add('show');
+    }, 10);
+    
     this.hydrateOfflineControls();
+  }
+
+  closeOfflineSyncPanel() {
+    const panel = document.getElementById('offline-sync-panel');
+    const overlay = document.getElementById('offline-sync-overlay');
+    
+    if (panel && overlay) {
+      panel.classList.remove('show');
+      overlay.classList.remove('show');
+      
+      setTimeout(() => {
+        panel.remove();
+        overlay.remove();
+      }, 300);
+    }
   }
 
   ensureOfflineSectionInSeatSettings(scrollIntoView = false) {
