@@ -408,10 +408,6 @@
     max-width: none;
     width: auto;
   }
-  
-  .offline-sync-card-modal::after {
-    left: 20px;
-  }
 }
 
 /* オフライン同期カードモーダル（吹き出しスタイル） */
@@ -438,21 +434,7 @@
   opacity: 1;
 }
 
-/* 吹き出しの矢印 */
-.offline-sync-card-modal::after {
-  content: '';
-  position: absolute;
-  bottom: -8px;
-  left: 30px;
-  width: 16px;
-  height: 16px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-top: none;
-  border-right: none;
-  transform: rotate(-45deg);
-  box-shadow: -2px 2px 4px rgba(0, 0, 0, 0.1);
-}
+/* 吹き出しの矢印 - 削除済み */
 
 .offline-sync-card-modal h4 {
   margin: 0 0 16px 0;
