@@ -1040,9 +1040,9 @@ function startUserInteraction() {
 function showSeatEditModal(seatData) {
   console.log('[最高管理者] モーダル表示開始:', seatData);
   
-  // モーダルのHTMLを作成
+  // モーダルのHTMLを作成（最初はshowクラスなし）
   const modalHTML = `
-    <div id="seat-edit-modal" class="modal show">
+    <div id="seat-edit-modal" class="modal">
       <div class="modal-content" style="max-width: 500px;">
         <h3>座席データ編集 - ${seatData.id}</h3>
         <div class="seat-edit-form">
@@ -1070,13 +1070,15 @@ function showSeatEditModal(seatData) {
   // モーダルを表示（アニメーション有効化のため、挿入後にreflowを挟んでshowクラス付与）
   document.body.insertAdjacentHTML('beforeend', modalHTML);
   console.log('[最高管理者] モーダルHTMLを追加');
-  try {
+  
+  // アニメーションを開始するため、次のフレームでshowクラスを追加
+  requestAnimationFrame(() => {
     const modalEl = document.getElementById('seat-edit-modal');
     if (modalEl) {
-      // 次フレームでshowを付与してトランジション開始
-      requestAnimationFrame(() => { modalEl.classList.add('show'); });
+      modalEl.classList.add('show');
+      console.log('[最高管理者] アニメーション開始');
     }
-  } catch (_) {}
+  });
   
   // モーダルの背景クリックで閉じる機能を追加
   const modal = document.getElementById('seat-edit-modal');
@@ -1097,10 +1099,17 @@ function closeSeatEditModal() {
   const modal = document.getElementById('seat-edit-modal');
   if (modal) {
     try {
-      // 退出アニメーションを再生後に削除
-      modal.classList.remove('show');
+      // 退出アニメーションを再生
       modal.classList.add('closing');
-      setTimeout(() => { try { modal.remove(); } catch (_) {} }, 220);
+      console.log('[最高管理者] 閉じるアニメーション開始');
+      
+      // アニメーション完了後にモーダルを削除
+      setTimeout(() => { 
+        try { 
+          modal.remove(); 
+          console.log('[最高管理者] モーダル削除完了');
+        } catch (_) {} 
+      }, 250); // CSSのアニメーション時間と合わせる
     } catch (_) {
       modal.remove();
     }
