@@ -117,6 +117,22 @@
   animation: slideInRight 0.3s ease-out;
 }
 
+/* オフライン処理通知 */
+.offline-processing-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeaa7;
+  border-radius: 5px;
+  padding: 15px 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 10001;
+  max-width: 400px;
+  animation: slideInRight 0.3s ease-out;
+}
+
 @keyframes slideInRight {
   from {
     transform: translateX(100%);
@@ -475,6 +491,12 @@
 .offline-indicator.online {
   background: #28a745;
   animation: none;
+}
+
+.offline-indicator.offline-with-cache {
+  background: #ffc107;
+  color: #000;
+  animation: pulse 2s infinite;
 }
 
 /* 同期進行状況バー */

@@ -179,6 +179,30 @@ async function issueWalkinConsecutive() {
         return;
       }
     }
+
+    // ローカル処理成功時の座席表示
+    if (response.success && response.offline && response.seatIds) {
+      showLoader(false);
+      showSuccessNotification(response.message || '座席が確保されました。');
+
+      const seats = response.seatIds;
+      let seatDisplay = '';
+      
+      if (seats.length === 1) {
+        seatDisplay = seats[0];
+      } else {
+        seatDisplay = seats.join(' / ');
+      }
+      
+      // ローカル処理であることを示すマークを追加
+      if (response.localProcessing) {
+        seatDisplay += ' (ローカル処理)';
+      }
+      
+      reservedSeatEl.textContent = seatDisplay;
+      reservationResult.classList.add('show');
+      return;
+    }
     
     if (response.success) {
       showLoader(false);
@@ -196,7 +220,12 @@ async function issueWalkinConsecutive() {
       reservationResult.classList.add('show');
     } else {
       showLoader(false);
-      showErrorNotification(response.message || '連続席が見つかりませんでした。');
+      // ローカル処理のエラーメッセージを適切に表示
+      if (response.needsOnlineData) {
+        showErrorNotification('座席データがキャッシュされていません。オンライン時に座席データを取得してから再試行してください。');
+      } else {
+        showErrorNotification(response.message || '連続席が見つかりませんでした。');
+      }
     }
   } catch (error) {
     console.error('連続席発行エラー:', error);
@@ -246,6 +275,32 @@ async function issueWalkinAnywhere() {
       }
     }
 
+    // ローカル処理成功時の座席表示
+    if (response.success && response.offline && (response.seatIds || response.seatId)) {
+      showLoader(false);
+      showSuccessNotification(response.message || '座席が確保されました。');
+
+      let seats = [];
+      if (response.seatId) seats = [response.seatId];
+      if (response.seatIds && Array.isArray(response.seatIds)) seats = response.seatIds;
+
+      let seatDisplay = '';
+      if (seats.length === 1) {
+        seatDisplay = seats[0];
+      } else {
+        seatDisplay = seats.join(' / ');
+      }
+      
+      // ローカル処理であることを示すマークを追加
+      if (response.localProcessing) {
+        seatDisplay += ' (ローカル処理)';
+      }
+      
+      reservedSeatEl.textContent = seatDisplay;
+      reservationResult.classList.add('show');
+      return;
+    }
+
     if (response.success) {
       showLoader(false);
       showSuccessNotification(response.message || '座席が確保されました。');
@@ -262,7 +317,12 @@ async function issueWalkinAnywhere() {
       reservationResult.classList.add('show');
     } else {
       showLoader(false);
-      showErrorNotification(response.message || '空席が見つかりませんでした。');
+      // ローカル処理のエラーメッセージを適切に表示
+      if (response.needsOnlineData) {
+        showErrorNotification('座席データがキャッシュされていません。オンライン時に座席データを取得してから再試行してください。');
+      } else {
+        showErrorNotification(response.message || '空席が見つかりませんでした。');
+      }
     }
   } catch (error) {
     console.error('当日券発行エラー:', error);
