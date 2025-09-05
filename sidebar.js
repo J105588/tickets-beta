@@ -69,7 +69,11 @@ function showModeChangeModal() {
 function closeModeModal() {
     const modal = document.getElementById("mode-change-modal");
     if (modal) {
-        modal.classList.remove('show');
+        modal.classList.add('fade-out');
+        setTimeout(() => {
+            modal.classList.remove('show');
+            modal.classList.remove('fade-out');
+        }, 300);
     }
 }
 

@@ -53,6 +53,11 @@ class OfflineOperationManager {
     this.retryTimeout = null;
     this.operationCounter = 0;
     
+    // 当日券モード用の空席同期
+    this.walkinSeatSyncInterval = null;
+    this.walkinSeatSyncEnabled = false;
+    this.walkinSeatSyncIntervalMs = 30000; // 30秒間隔
+    
     this.initializeEventListeners();
     this.startBackgroundSync();
   }
@@ -70,6 +75,9 @@ class OfflineOperationManager {
     
     // ページ可視性の変更を監視
     document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
+    
+    // 当日券モードの監視
+    this.startWalkinModeMonitoring();
   }
 
   /**
@@ -879,8 +887,11 @@ class OfflineOperationManager {
     try {
       const modal = document.getElementById('sync-modal-v2');
       if (modal) {
-        modal.remove();
-        console.log('[OfflineSync] 同期モーダルを非表示');
+        modal.classList.add('fade-out');
+        setTimeout(() => {
+          modal.remove();
+          console.log('[OfflineSync] 同期モーダルを非表示');
+        }, 300);
       }
     } catch (error) {
       console.error('[OfflineSync] モーダル非表示エラー:', error);
@@ -1245,16 +1256,7 @@ class OfflineOperationManager {
       const existing = document.getElementById('offline-sync-card-modal');
       if (existing) { existing.remove(); }
       
-      const existingOverlay = document.getElementById('offline-sync-card-overlay');
-      if (existingOverlay) { existingOverlay.remove(); }
-      
-      // オーバーレイを作成
-      const overlay = document.createElement('div');
-      overlay.id = 'offline-sync-card-overlay';
-      overlay.className = 'offline-sync-card-overlay';
-      overlay.onclick = () => this.closeOfflineSyncPanel();
-      
-      // カードモーダルを作成
+      // カードモーダルを作成（オーバーレイなし）
       const modal = document.createElement('div');
       modal.id = 'offline-sync-card-modal';
       modal.className = 'offline-sync-card-modal';
@@ -1273,28 +1275,29 @@ class OfflineOperationManager {
           <h4>オフライン同期</h4>
           <div class="offline-sync-card-controls">
             <div class="offline-sync-controls-fallback">
-              <span class="sync-status-pill">❓ 状態不明</span>
-              <span class="sync-queue-pill">📋 キュー: 0</span>
+              <span class="sync-status-pill">状態不明</span>
+              <span class="sync-queue-pill">キュー: 0</span>
             </div>
-            <button disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
-            <button class="offline-sync-card-btn">📊 詳細表示</button>
+            <button disabled class="offline-sync-card-btn">今すぐ同期</button>
+            <button class="offline-sync-card-btn">詳細表示</button>
           </div>
           <div class="offline-sync-card-status" id="offline-sync-status">同期状況: エラー</div>
         `;
       }
       
-      document.body.appendChild(overlay);
       document.body.appendChild(modal);
       
       // アニメーションで表示
       setTimeout(() => {
         try {
-          overlay.classList.add('show');
           modal.classList.add('show');
         } catch (error) {
           console.error('[OfflineSync] Animation error:', error);
         }
       }, 10);
+      
+      // カード外をクリックして閉じる機能を追加
+      this.addOutsideClickHandler(modal);
       
       this.hydrateOfflineControls();
     } catch (error) {
@@ -1305,24 +1308,38 @@ class OfflineOperationManager {
   closeOfflineSyncPanel() {
     try {
       const modal = document.getElementById('offline-sync-card-modal');
-      const overlay = document.getElementById('offline-sync-card-overlay');
       
-      if (modal && overlay) {
-        modal.classList.remove('show');
-        overlay.classList.remove('show');
+      if (modal) {
+        modal.classList.add('scale-out');
         
         setTimeout(() => {
           try {
             modal.remove();
-            overlay.remove();
           } catch (error) {
             console.error('[OfflineSync] Cleanup error:', error);
           }
-        }, 400);
+        }, 300);
       }
     } catch (error) {
       console.error('[OfflineSync] closeOfflineSyncPanel error:', error);
     }
+  }
+
+  // カード外をクリックして閉じるハンドラーを追加
+  addOutsideClickHandler(modal) {
+    const handleOutsideClick = (event) => {
+      // モーダルが存在し、クリックされた要素がモーダルの外側の場合
+      if (modal && !modal.contains(event.target)) {
+        this.closeOfflineSyncPanel();
+        // イベントリスナーを削除
+        document.removeEventListener('click', handleOutsideClick);
+      }
+    };
+
+    // 少し遅延してイベントリスナーを追加（モーダル表示アニメーション完了後）
+    setTimeout(() => {
+      document.addEventListener('click', handleOutsideClick);
+    }, 100);
   }
 
   ensureOfflineSectionInSeatSettings(scrollIntoView = false) {
@@ -1356,11 +1373,11 @@ class OfflineOperationManager {
       return `
         <div class="offline-sync-controls-wrapper">
           <div class="offline-sync-controls-pills">
-            <span id="sync-status-pill" class="sync-status-pill ${inProgress ? 'syncing' : (isOnline ? 'online' : 'offline')}">${inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン')}</span>
-            <span id="sync-queue-pill" class="sync-queue-pill">📋 キュー: ${queueLen}</span>
+            <span id="sync-status-pill" class="sync-status-pill ${inProgress ? 'syncing' : (isOnline ? 'online' : 'offline')}">${inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン')}</span>
+            <span id="sync-queue-pill" class="sync-queue-pill">キュー: ${queueLen}</span>
           </div>
-          <button id="sync-now-btn" ${disabled} class="offline-sync-card-btn">🔄 今すぐ同期</button>
-          <button id="sync-detail-btn" class="offline-sync-card-btn detail-btn">📊 詳細表示</button>
+          <button id="sync-now-btn" ${disabled} class="offline-sync-card-btn">今すぐ同期</button>
+          <button id="sync-detail-btn" class="offline-sync-card-btn detail-btn">詳細表示</button>
         </div>`;
     } catch (error) {
       console.error('[OfflineSync] renderOfflineControlsHTML error:', error);
@@ -1368,11 +1385,11 @@ class OfflineOperationManager {
       return `
         <div class="offline-sync-controls-wrapper">
           <div class="offline-sync-controls-pills">
-            <span id="sync-status-pill" class="sync-status-pill unknown">❓ 状態不明</span>
-            <span id="sync-queue-pill" class="sync-queue-pill">📋 キュー: 0</span>
+            <span id="sync-status-pill" class="sync-status-pill unknown">状態不明</span>
+            <span id="sync-queue-pill" class="sync-queue-pill">キュー: 0</span>
           </div>
-          <button id="sync-now-btn" disabled class="offline-sync-card-btn">🔄 今すぐ同期</button>
-          <button id="sync-detail-btn" class="offline-sync-card-btn detail-btn">📊 詳細表示</button>
+          <button id="sync-now-btn" disabled class="offline-sync-card-btn">今すぐ同期</button>
+          <button id="sync-detail-btn" class="offline-sync-card-btn detail-btn">詳細表示</button>
         </div>`;
     }
   }
@@ -1421,10 +1438,10 @@ class OfflineOperationManager {
           const queuePill = document.getElementById('sync-queue-pill');
           
           if (statusPill) {
-            statusPill.textContent = inProgress ? '🔄 同期中' : (isOnline ? '🟢 オンライン' : '🔴 オフライン');
+            statusPill.textContent = inProgress ? '同期中' : (isOnline ? 'オンライン' : 'オフライン');
             statusPill.className = `sync-status-pill ${inProgress ? 'syncing' : (isOnline ? 'online' : 'offline')}`;
           }
-          if (queuePill) queuePill.textContent = `📋 キュー: ${queueLen}`;
+          if (queuePill) queuePill.textContent = `キュー: ${queueLen}`;
           if (syncBtn) {
             const disabled = (!isOnline) || inProgress || queueLen === 0;
             syncBtn.disabled = disabled;
@@ -1449,6 +1466,204 @@ class OfflineOperationManager {
     } catch (error) {
       console.error('[OfflineSync] hydrateOfflineControls error:', error);
     }
+  }
+
+  /**
+   * 当日券モードの監視を開始
+   */
+  startWalkinModeMonitoring() {
+    // 定期的に当日券モードかどうかをチェック
+    setInterval(() => {
+      this.checkWalkinMode();
+    }, 5000);
+  }
+
+  /**
+   * 当日券モードかどうかをチェック
+   */
+  checkWalkinMode() {
+    const currentMode = localStorage.getItem('currentMode') || 'normal';
+    const isWalkinMode = currentMode === 'walkin';
+    
+    if (isWalkinMode && !this.walkinSeatSyncEnabled) {
+      console.log('[OfflineSync] 当日券モードを検知、空席同期を開始');
+      this.startWalkinSeatSync();
+    } else if (!isWalkinMode && this.walkinSeatSyncEnabled) {
+      console.log('[OfflineSync] 当日券モード終了、空席同期を停止');
+      this.stopWalkinSeatSync();
+    }
+  }
+
+  /**
+   * 当日券用の空席同期を開始
+   */
+  startWalkinSeatSync() {
+    if (this.walkinSeatSyncEnabled) return;
+    
+    this.walkinSeatSyncEnabled = true;
+    console.log('[OfflineSync] 当日券用空席同期を開始');
+    
+    // 即座に実行
+    this.syncWalkinSeatData();
+    
+    // 定期的に実行
+    this.walkinSeatSyncInterval = setInterval(() => {
+      this.syncWalkinSeatData();
+    }, this.walkinSeatSyncIntervalMs);
+  }
+
+  /**
+   * 当日券用の空席同期を停止
+   */
+  stopWalkinSeatSync() {
+    if (!this.walkinSeatSyncEnabled) return;
+    
+    this.walkinSeatSyncEnabled = false;
+    console.log('[OfflineSync] 当日券用空席同期を停止');
+    
+    if (this.walkinSeatSyncInterval) {
+      clearInterval(this.walkinSeatSyncInterval);
+      this.walkinSeatSyncInterval = null;
+    }
+  }
+
+  /**
+   * 当日券用の空席データを同期
+   */
+  async syncWalkinSeatData() {
+    if (!this.isOnline || !this.walkinSeatSyncEnabled) return;
+    
+    try {
+      console.log('[OfflineSync] 当日券用空席データを同期中...');
+      
+      // 各スプシの空席データを取得
+      const spreadsheetIds = this.getWalkinSpreadsheetIds();
+      
+      for (const spreadsheetId of spreadsheetIds) {
+        try {
+          await this.syncWalkinSpreadsheetSeats(spreadsheetId);
+        } catch (error) {
+          console.error(`[OfflineSync] スプシ ${spreadsheetId} の空席同期エラー:`, error);
+        }
+      }
+      
+      console.log('[OfflineSync] 当日券用空席データ同期完了');
+    } catch (error) {
+      console.error('[OfflineSync] 当日券用空席データ同期エラー:', error);
+    }
+  }
+
+  /**
+   * 当日券用のスプシID一覧を取得
+   */
+  getWalkinSpreadsheetIds() {
+    // 設定からスプシID一覧を取得
+    const spreadsheetIds = [];
+    
+    // メインのスプシID
+    if (window.SPREADSHEET_ID) {
+      spreadsheetIds.push(window.SPREADSHEET_ID);
+    }
+    
+    // オフライン用のスプシID
+    if (window.OFFLINE_SPREADSHEET_ID) {
+      spreadsheetIds.push(window.OFFLINE_SPREADSHEET_ID);
+    }
+    
+    // その他のスプシID（設定ファイルから取得）
+    try {
+      if (window.SPREADSHEET_IDS && Array.isArray(window.SPREADSHEET_IDS)) {
+        spreadsheetIds.push(...window.SPREADSHEET_IDS);
+      }
+    } catch (error) {
+      console.warn('[OfflineSync] スプシID一覧の取得に失敗:', error);
+    }
+    
+    return [...new Set(spreadsheetIds)]; // 重複を除去
+  }
+
+  /**
+   * 特定のスプシの空席データを同期
+   */
+  async syncWalkinSpreadsheetSeats(spreadsheetId) {
+    try {
+      // 空席データを取得
+      const seatData = await this.fetchWalkinSeatData(spreadsheetId);
+      
+      if (seatData && seatData.success) {
+        // ローカルストレージに保存
+        const cacheKey = `walkin_seats_${spreadsheetId}`;
+        const cacheData = {
+          data: seatData.seatMap,
+          timestamp: Date.now(),
+          spreadsheetId: spreadsheetId
+        };
+        
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+        console.log(`[OfflineSync] スプシ ${spreadsheetId} の空席データをキャッシュに保存`);
+      }
+    } catch (error) {
+      console.error(`[OfflineSync] スプシ ${spreadsheetId} の空席データ取得エラー:`, error);
+    }
+  }
+
+  /**
+   * 当日券用の空席データを取得
+   */
+  async fetchWalkinSeatData(spreadsheetId) {
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      const callbackName = `walkinSeatCallback_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      window[callbackName] = (response) => {
+        document.head.removeChild(script);
+        delete window[callbackName];
+        resolve(response);
+      };
+      
+      script.src = `https://script.google.com/macros/s/${spreadsheetId}/exec?callback=${callbackName}&func=getSeatDataMinimal&params=${encodeURIComponent(JSON.stringify(['見本演劇', '1', 'A', false]))}`;
+      script.onerror = () => {
+        document.head.removeChild(script);
+        delete window[callbackName];
+        reject(new Error('空席データの取得に失敗しました'));
+      };
+      
+      document.head.appendChild(script);
+      
+      // タイムアウト設定
+      setTimeout(() => {
+        if (window[callbackName]) {
+          document.head.removeChild(script);
+          delete window[callbackName];
+          reject(new Error('空席データの取得がタイムアウトしました'));
+        }
+      }, 10000);
+    });
+  }
+
+  /**
+   * キャッシュされた当日券用空席データを取得
+   */
+  getCachedWalkinSeatData(spreadsheetId) {
+    try {
+      const cacheKey = `walkin_seats_${spreadsheetId}`;
+      const cached = localStorage.getItem(cacheKey);
+      
+      if (cached) {
+        const cacheData = JSON.parse(cached);
+        const now = Date.now();
+        const cacheAge = now - cacheData.timestamp;
+        
+        // キャッシュが1時間以内なら有効
+        if (cacheAge < 3600000) {
+          return cacheData.data;
+        }
+      }
+    } catch (error) {
+      console.error('[OfflineSync] キャッシュされた空席データの取得エラー:', error);
+    }
+    
+    return null;
   }
 }
 
@@ -1578,7 +1793,7 @@ window.OfflineSyncV2 = {
           <div class="modal-buttons">
             <button onclick="OfflineSyncV2.sync()" ${queue.length === 0 ? 'disabled' : ''}>今すぐ同期</button>
             <button onclick="OfflineSyncV2.clearQueue()" ${queue.length === 0 ? 'disabled' : ''}>キューをクリア</button>
-            <button onclick="document.getElementById('queue-status-modal').remove()">閉じる</button>
+            <button onclick="OfflineSyncV2.closeQueueStatusModal()">閉じる</button>
           </div>
         </div>
       `;
@@ -1590,7 +1805,7 @@ window.OfflineSyncV2 = {
       // モーダルクリックで閉じる機能を追加
       modal.onclick = (e) => {
         if (e.target === modal) {
-          modal.remove();
+          OfflineSyncV2.closeQueueStatusModal();
         }
       };
       
@@ -1600,6 +1815,23 @@ window.OfflineSyncV2 = {
       const queue = offlineOperationManager.readOperationQueue();
       const status = offlineOperationManager.getSystemStatus();
       alert(`オフライン同期状況:\n\nキュー長: ${queue.length}\nオンライン状態: ${status.isOnline ? 'オンライン' : 'オフライン'}\n同期状況: ${status.syncInProgress ? '同期中' : '待機中'}`);
+    }
+  },
+
+  // キューステータスモーダルを閉じる
+  closeQueueStatusModal() {
+    const modal = document.getElementById('queue-status-modal');
+    if (modal) {
+      // モーダルコンテンツにもアニメーションを適用
+      const modalContent = modal.querySelector('.modal-content');
+      if (modalContent) {
+        modalContent.classList.add('slide-down');
+      }
+      modal.classList.add('fade-out');
+      
+      setTimeout(() => {
+        modal.remove();
+      }, 300);
     }
   },
   
@@ -1656,3 +1888,7 @@ function readCache(group, day, timeslot) { return offlineOperationManager.readCa
 function writeCache(group, day, timeslot, data) { offlineOperationManager.writeCache(group, day, timeslot, data); }
 function enqueue(operation) { offlineOperationManager.addOperation(operation); }
 async function installOfflineOverrides() { await offlineOperationManager.installOfflineOverrides(); }
+
+// 当日券用空席データ取得
+function getWalkinSeatData(spreadsheetId) { return offlineOperationManager.getCachedWalkinSeatData(spreadsheetId); }
+async function syncWalkinSeats() { return await offlineOperationManager.syncWalkinSeatData(); }
