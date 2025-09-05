@@ -625,41 +625,60 @@ graph TD
   - システム設定の一括管理
   - 依存: なし（手動実行用）
 
+#### オフライン用バックエンド（フェイルオーバー）
+- **`OfflineCode.gs`**: オフライン用メインAPI処理
+  - メインGASと同様の機能を提供
+  - フェイルオーバー用の独立したGASプロジェクト
+  - 依存: `OfflineSpreadsheetIds.gs`, `OfflineTimeSlotConfig.gs`
+- **`OfflineSpreadsheetIds.gs`**: オフライン用スプレッドシートID管理
+  - オフライン用GASプロジェクト専用のスプレッドシートID設定
+  - メインシステムとは独立したデータストア
+  - 依存: なし（OfflineCode.gsから参照される）
+- **`OfflineTimeSlotConfig.gs`**: オフライン用時間帯設定
+  - オフライン用GASプロジェクト専用の時間帯設定
+  - メインシステムと同期した時間帯データ
+  - 依存: なし（OfflineCode.gsから参照される）
+
 ### 📊 ファイルサイズ情報
 
 | ファイル | サイズ (行) | 説明 |
 |----------|-------------|------|
 | **.gitignore** | 1 | Git除外設定 |
 | **CNAME** | 0 | カスタムドメイン設定 |
-| **Code.gs** | 1,187 | メインAPI処理とビジネスロジック |
+| **Code.gs** | 1,240 | メインAPI処理とビジネスロジック |
 | **LICENSE** | 21 | ライセンス情報 |
-| **README.md** | 727 | プロジェクトドキュメント |
+| **OFFLINE_SYNC_README.md** | 254 | オフライン同期機能の詳細ドキュメント |
+| **OfflineCode.gs** | 463 | オフライン用GASコード |
+| **OfflineSpreadsheetIds.gs** | 68 | オフライン用スプレッドシートID管理 |
+| **OfflineTimeSlotConfig.gs** | 71 | オフライン用時間帯設定 |
+| **README.md** | 997 | プロジェクトドキュメント |
 | **SpreadsheetIds.gs** | 80 | スプレッドシートID管理 |
 | **TimeSlotConfig.gs** | 95 | 時間帯設定管理 |
-| **api.js** | 261 | GAS API呼び出し機能 |
-| **config.js** | 18 | システム設定 |
+| **api.js** | 322 | GAS API呼び出し機能 |
+| **config.js** | 20 | システム設定 |
 | **error-handler.js** | 208 | エラーハンドリング機能 |
 | **index-main.js** | 14 | 組選択ページのメインロジック |
-| **index.html** | 52 | 組選択ページ |
-| **seats-main.js** | 1,220 | 座席選択・予約ページのメインロジック |
-| **seats.css** | 809 | 座席選択ページ専用スタイル |
-| **seats.html** | 99 | 座席選択・予約ページ |
+| **index.html** | 75 | 組選択ページ |
+| **offline-sync-v2.css** | 896 | オフライン同期UI |
+| **offline-sync-v2.js** | 2,569 | オフライン同期システム（v2.0） |
+| **offline-sync.js** | 571 | 旧オフライン同期システム |
+| **seats-main.js** | 1,445 | 座席選択・予約ページのメインロジック |
+| **seats.css** | 816 | 座席選択ページ専用スタイル |
+| **seats.html** | 119 | 座席選択・予約ページ |
 | **sidebar.css** | 249 | サイドバー専用スタイル |
-| **sidebar.js** | 257 | サイドバーとモード管理機能 |
-| **styles.css** | 160 | 全体共通スタイル |
-| **system-lock.js** | 100 | システムロック機能 |
+| **sidebar.js** | 267 | サイドバーとモード管理機能 |
+| **styles.css** | 246 | 全体共通スタイル |
+| **sw.js** | 87 | Service Worker |
+| **system-lock.js** | 102 | システムロック機能 |
 | **system-setting.gs** | 71 | システム設定ユーティリティ |
-| **timeslot-main.js** | 131 | 時間帯選択ページのメインロジック |
+| **timeslot-main.js** | 175 | 時間帯選択ページのメインロジック |
 | **timeslot-schedules.js** | 80 | 時間帯スケジュール定義 |
-| **timeslot.html** | 46 | 時間帯選択ページ |
-| **walkin-main.js** | 459 | 当日券発行ページのメインロジック |
+| **timeslot.html** | 67 | 時間帯選択ページ |
+| **walkin-main.js** | 458 | 当日券発行ページのメインロジック |
 | **walkin.css** | 317 | 当日券ページ専用スタイル |
-| **walkin.html** | 90 | 当日券発行ページ |
-| **offline-sync-v2.js** | 2,570 | オフライン同期システム（v2.0） |
-| **offline-sync-v2.css** | 897 | オフライン同期UI |
-| **sw.js** | 200 | Service Worker |
+| **walkin.html** | 109 | 当日券発行ページ |
 
-**合計: 10,351行**
+**合計: 12,573行**
 
 ### 🔗 依存関係図
 ```mermaid
