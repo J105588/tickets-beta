@@ -1067,9 +1067,16 @@ function showSeatEditModal(seatData) {
     </div>
   `;
   
-  // モーダルを表示
+  // モーダルを表示（アニメーション有効化のため、挿入後にreflowを挟んでshowクラス付与）
   document.body.insertAdjacentHTML('beforeend', modalHTML);
   console.log('[最高管理者] モーダルHTMLを追加');
+  try {
+    const modalEl = document.getElementById('seat-edit-modal');
+    if (modalEl) {
+      // 次フレームでshowを付与してトランジション開始
+      requestAnimationFrame(() => { modalEl.classList.add('show'); });
+    }
+  } catch (_) {}
   
   // モーダルの背景クリックで閉じる機能を追加
   const modal = document.getElementById('seat-edit-modal');
@@ -1089,7 +1096,14 @@ function showSeatEditModal(seatData) {
 function closeSeatEditModal() {
   const modal = document.getElementById('seat-edit-modal');
   if (modal) {
-    modal.remove();
+    try {
+      // 退出アニメーションを再生後に削除
+      modal.classList.remove('show');
+      modal.classList.add('closing');
+      setTimeout(() => { try { modal.remove(); } catch (_) {} }, 220);
+    } catch (_) {
+      modal.remove();
+    }
   }
   
   // 最高管理者モードの座席選択状態をクリア
