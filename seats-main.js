@@ -503,25 +503,30 @@ function handleSeatClick(seatData) {
 
 // 最高管理者モードでの座席クリック処理
 function handleSuperAdminSeatClick(seatData) {
+  console.log('[最高管理者] 座席クリック:', seatData);
+  
   // 任意の座席を選択可能
   const seatElement = document.querySelector(`[data-id="${seatData.id}"]`);
-  if (!seatElement) return;
+  if (!seatElement) {
+    console.error('[最高管理者] 座席要素が見つかりません:', seatData.id);
+    return;
+  }
 
   // ユーザー操作開始
   startUserInteraction();
 
-  // 座席の選択状態を切り替え（編集用）
-  if (seatElement.classList.contains('selected-for-edit')) {
-    // 選択解除
-    seatElement.classList.remove('selected-for-edit');
-  } else {
-    // 選択
-    // 他の座席の選択をクリア
-    document.querySelectorAll('.seat.selected-for-edit').forEach(seat => {
-      seat.classList.remove('selected-for-edit');
-    });
-    seatElement.classList.add('selected-for-edit');
-  }
+  // 既存のモーダルがあれば閉じる
+  closeSeatEditModal();
+
+  // 座席の選択状態を設定（編集用）
+  // 他の座席の選択をクリア
+  document.querySelectorAll('.seat.selected-for-edit').forEach(seat => {
+    seat.classList.remove('selected-for-edit');
+  });
+  
+  // 現在の座席を選択状態にする
+  seatElement.classList.add('selected-for-edit');
+  console.log('[最高管理者] 座席選択状態を設定:', seatData.id);
 
   // 編集モーダルを表示
   showSeatEditModal(seatData);
@@ -1033,9 +1038,11 @@ function startUserInteraction() {
 
 // 座席編集モーダルを表示する関数
 function showSeatEditModal(seatData) {
+  console.log('[最高管理者] モーダル表示開始:', seatData);
+  
   // モーダルのHTMLを作成
   const modalHTML = `
-    <div id="seat-edit-modal" class="modal" style="display: block;">
+    <div id="seat-edit-modal" class="modal show">
       <div class="modal-content" style="max-width: 500px;">
         <h3>座席データ編集 - ${seatData.id}</h3>
         <div class="seat-edit-form">
@@ -1062,6 +1069,20 @@ function showSeatEditModal(seatData) {
   
   // モーダルを表示
   document.body.insertAdjacentHTML('beforeend', modalHTML);
+  console.log('[最高管理者] モーダルHTMLを追加');
+  
+  // モーダルの背景クリックで閉じる機能を追加
+  const modal = document.getElementById('seat-edit-modal');
+  if (modal) {
+    console.log('[最高管理者] モーダル要素を取得:', modal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeSeatEditModal();
+      }
+    });
+  } else {
+    console.error('[最高管理者] モーダル要素が見つかりません');
+  }
 }
 
 // 座席編集モーダルを閉じる関数
