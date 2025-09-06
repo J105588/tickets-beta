@@ -3,7 +3,7 @@
 const GAS_API_URLS = [
   "https://script.google.com/macros/s/AKfycbyxIY4S3npd0-v45_2EWqPn-uLTjwQlNlUCWUl7rztSIFjyIX2mxKERUoEM411kPHAQ/exec",
   // 新しいデプロイURLがある場合は下に追加してください
-  // "https://script.google.com/macros/s/AKfycbNEW.../exec",
+  "https://script.google.com/macros/s/AKfycbx4gwaLXvlObvgxQ74Sl3rSGKSqcLquY6exWtoo7E5AIZZslQQVpalqPO8F77js861Z/exec",
   // "https://script.google.com/macros/s/AKfycbANOTHER.../exec",
   // "https://script.google.com/macros/s/AKfycbTHIRD.../exec"
 ];
