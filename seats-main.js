@@ -671,6 +671,11 @@ async function manualRefresh() {
   showLoader(true);
   
   try {
+    // 手動更新時は必ず異なるURLを選択
+    const oldUrl = apiUrlManager.getCurrentUrl();
+    apiUrlManager.selectRandomUrl();
+    const newUrl = apiUrlManager.getCurrentUrl();
+    
     // URL変更をチェック
     checkForUrlChange();
     

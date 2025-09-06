@@ -104,22 +104,21 @@ class GasAPI {
         script.onerror = (error) => {
           console.error('API call error:', error, { functionName, fullUrl });
           try {
-            // 次のURLがあればフェイルオーバー
-            if (Array.isArray(urls) && currentUrlIndex < urls.length - 1) {
-              currentUrlIndex++;
-              const nextUrl = `${urls[currentUrlIndex]}?callback=${callbackName}&${formData}&${cacheBuster}`;
-              console.warn('Failing over to next GAS url:', nextUrl);
-              script.src = nextUrl;
-              return; // タイムアウトは継続
-            }
-            
-            // フェイルオーバー後も失敗した場合、URL管理システムでランダム選択
+            // 現在のURLとは異なるURLを選択してフェイルオーバー
             if (Array.isArray(urls) && urls.length > 1) {
-              apiUrlManager.selectRandomUrl();
-              const randomUrl = apiUrlManager.getCurrentUrl();
-              const retryUrl = `${randomUrl}?callback=${callbackName}&${formData}&${cacheBuster}`;
-              console.warn('Retrying with random URL:', retryUrl);
-              script.src = retryUrl;
+              // 現在のURLのインデックスを取得
+              const currentUrl = apiUrlManager.getCurrentUrl();
+              const currentUrlIndexInArray = urls.indexOf(currentUrl);
+              
+              // 現在のURLとは異なるURLを選択
+              let nextUrlIndex;
+              do {
+                nextUrlIndex = Math.floor(Math.random() * urls.length);
+              } while (nextUrlIndex === currentUrlIndexInArray && urls.length > 1);
+              
+              const nextUrl = `${urls[nextUrlIndex]}?callback=${callbackName}&${formData}&${cacheBuster}`;
+              console.warn('Failing over to different GAS url:', nextUrl);
+              script.src = nextUrl;
               return; // タイムアウトは継続
             }
 

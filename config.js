@@ -40,19 +40,35 @@ class APIUrlManager {
     }
   }
 
-  // URLを次のものにローテーション
+  // URLを次のものにローテーション（現在のURLとは異なるものを必ず選択）
   rotateUrl() {
     const oldIndex = this.currentIndex;
+    
+    // 次のURLを選択（配列の最後の場合は最初に戻る）
     this.currentIndex = (this.currentIndex + 1) % this.urls.length;
+    
+    // もしURLが1つしかない場合は何もしない
+    if (this.urls.length <= 1) {
+      return;
+    }
+    
     this.lastRotationTime = Date.now();
     console.log(`[API URL Manager] URLローテーション: ${oldIndex + 1} → ${this.currentIndex + 1}`, this.urls[this.currentIndex]);
   }
 
-  // 手動でランダムURL選択
+  // 手動でランダムURL選択（現在のURLとは異なるものを必ず選択）
   selectRandomUrl() {
     if (this.urls.length > 1) {
       const oldIndex = this.currentIndex;
-      this.currentIndex = Math.floor(Math.random() * this.urls.length);
+      const oldUrl = this.urls[oldIndex];
+      
+      // 現在のURLとは異なるURLを選択
+      let newIndex;
+      do {
+        newIndex = Math.floor(Math.random() * this.urls.length);
+      } while (newIndex === oldIndex && this.urls.length > 1);
+      
+      this.currentIndex = newIndex;
       this.lastRotationTime = Date.now();
       console.log(`[API URL Manager] ランダム選択: ${oldIndex + 1} → ${this.currentIndex + 1}`, this.urls[this.currentIndex]);
     }
