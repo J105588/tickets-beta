@@ -199,11 +199,15 @@
       const icon = changeType === 'rotation' ? '↻' : '⚡';
       const message = changeType === 'rotation' ? 'API URL ローテーション' : 'API URL ランダム選択';
       
+      // スクリプトIDを抽出（/macros/s/以降の部分）
+      const scriptId = newUrl.split('/macros/s/')[1]?.split('/')[0] || 'unknown';
+      const displayId = scriptId.substring(0, 8) + '...';
+      
       notification.innerHTML = `
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 16px; font-weight: bold;">${icon}</span>
           <span>${message}</span>
-          <span style="opacity: 0.8; font-size: 12px;">(${newUrl.split('/')[3].substring(0, 8)}...)</span>
+          <span style="opacity: 0.8; font-size: 12px;">(${displayId})</span>
         </div>
       `;
 
