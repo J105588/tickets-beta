@@ -1,11 +1,12 @@
 // config.js
 // 複数のAPI URL（使用数上限回避のため分散）
 const GAS_API_URLS = [
+  //jxjin2010@gmail.com
   "https://script.google.com/macros/s/AKfycbyxIY4S3npd0-v45_2EWqPn-uLTjwQlNlUCWUl7rztSIFjyIX2mxKERUoEM411kPHAQ/exec",
-  // 新しいデプロイURLがある場合は下に追加してください
+  //jxjin.ig.school@gmail.com
   "https://script.google.com/macros/s/AKfycbx4gwaLXvlObvgxQ74Sl3rSGKSqcLquY6exWtoo7E5AIZZslQQVpalqPO8F77js861Z/exec",
-  // "https://script.google.com/macros/s/AKfycbANOTHER.../exec",
-  // "https://script.google.com/macros/s/AKfycbTHIRD.../exec"
+  //nzn.engeki5.b@gmail.com
+  "https://script.google.com/macros/s/AKfycbzimmDaGlGJtfDFqFqSSNRO-wdCYzGrePOLYvhyC3WVqXrWQFiW_eKlHdcvNwt8Rib9/exec"
 ];
 
 // URL選択とローテーション管理
