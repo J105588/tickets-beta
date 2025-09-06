@@ -1,5 +1,5 @@
 // api.js
-import { GAS_API_URL, GAS_API_URLS, DEBUG_MODE, debugLog } from './config.js';
+import { GAS_API_URLS, DEBUG_MODE, debugLog, apiUrlManager } from './config.js';
 
 class GasAPI {
   static _callApi(functionName, params = []) {
@@ -62,11 +62,18 @@ class GasAPI {
         };
 
         // URL 構築（キャッシュバスター付き）
-        const urls = Array.isArray(GAS_API_URLS) && GAS_API_URLS.length > 0 ? GAS_API_URLS : [GAS_API_URL];
+        const urls = Array.isArray(GAS_API_URLS) && GAS_API_URLS.length > 0 ? GAS_API_URLS : [];
         const cacheBuster = `_=${Date.now()}`;
         const formData = `func=${encodedFuncName}&params=${encodedParams}`;
-        let currentUrlIndex = 0;
-        let fullUrl = `${urls[currentUrlIndex]}?callback=${callbackName}&${formData}&${cacheBuster}`;
+        
+        // URL管理システムから現在のURLを取得
+        const currentUrl = apiUrlManager.getCurrentUrl();
+        let currentUrlIndex = urls.indexOf(currentUrl);
+        if (currentUrlIndex === -1) {
+          currentUrlIndex = 0; // フォールバック
+        }
+        
+        let fullUrl = `${currentUrl}?callback=${callbackName}&${formData}&${cacheBuster}`;
 
         const script = document.createElement('script');
         script.src = fullUrl;
@@ -103,6 +110,16 @@ class GasAPI {
               const nextUrl = `${urls[currentUrlIndex]}?callback=${callbackName}&${formData}&${cacheBuster}`;
               console.warn('Failing over to next GAS url:', nextUrl);
               script.src = nextUrl;
+              return; // タイムアウトは継続
+            }
+            
+            // フェイルオーバー後も失敗した場合、URL管理システムでランダム選択
+            if (Array.isArray(urls) && urls.length > 1) {
+              apiUrlManager.selectRandomUrl();
+              const randomUrl = apiUrlManager.getCurrentUrl();
+              const retryUrl = `${randomUrl}?callback=${callbackName}&${formData}&${cacheBuster}`;
+              console.warn('Retrying with random URL:', retryUrl);
+              script.src = retryUrl;
               return; // タイムアウトは継続
             }
 
@@ -198,7 +215,8 @@ class GasAPI {
         }
       };
 
-      let url = `${GAS_API_URL}?callback=${callbackName}&func=reportError&params=${encodeURIComponent(JSON.stringify([errorMessage]))}`;
+      const currentUrl = apiUrlManager.getCurrentUrl();
+      let url = `${currentUrl}?callback=${callbackName}&func=reportError&params=${encodeURIComponent(JSON.stringify([errorMessage]))}`;
       script.src = url;
       document.head.appendChild(script);
     } catch (e) {
@@ -291,6 +309,22 @@ class GasAPI {
     return this._callApi('debugSpreadsheetStructure', [group, day, timeslot]);
   }
 
+  // URL管理システムの情報を取得
+  static getUrlManagerInfo() {
+    return apiUrlManager.getCurrentUrlInfo();
+  }
+
+  // 手動でURLをランダム選択
+  static selectRandomUrl() {
+    apiUrlManager.selectRandomUrl();
+    return apiUrlManager.getCurrentUrlInfo();
+  }
+
+  // 利用可能なURL一覧を取得
+  static getAllUrls() {
+    return apiUrlManager.getAllUrls();
+  }
+
   // 危険コマンド実行
 }
 
@@ -317,6 +351,11 @@ if (typeof window !== 'undefined') {
   window.SeatApp.exec = async (action, payload, password) => {
     return GasAPI._callApi('execDangerCommand', [action, payload, password]);
   };
+  
+  // URL管理システムのコンソールコマンド
+  window.SeatApp.urlInfo = () => GasAPI.getUrlManagerInfo();
+  window.SeatApp.selectRandomUrl = () => GasAPI.selectRandomUrl();
+  window.SeatApp.getAllUrls = () => GasAPI.getAllUrls();
 }
 
 

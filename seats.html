@@ -22,10 +22,18 @@
       オフライン
     </div>
 
-    <!-- 同期進行状況バー -->
-    <div id="sync-progress-bar" class="sync-progress-bar" style="display: none;">
-      <div class="progress"></div>
+  <!-- 同期進行状況バー -->
+  <div id="sync-progress-bar" class="sync-progress-bar" style="display: none;">
+    <div class="progress"></div>
+  </div>
+
+  <!-- URL管理システム情報表示 -->
+  <div id="url-info" class="url-info" style="display: none;">
+    <div class="url-info-content">
+      <span id="url-info-text">API URL: 1/1</span>
+      <button id="url-refresh-btn" onclick="refreshUrlInfo()" title="URL情報を更新">更新</button>
     </div>
+  </div>
 
     <div id="main-content">
         <div class="page-header">
