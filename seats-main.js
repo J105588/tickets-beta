@@ -1,7 +1,7 @@
 // seats-main.js
 import GasAPI from './api.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
-import { getGAS_API_URL, DEBUG_MODE, debugLog } from './config.js';
+import { apiUrlManager, DEBUG_MODE, debugLog } from './config.js';
 
 /**
  * 座席選択画面のメイン処理
@@ -22,7 +22,7 @@ let isUserInteracting = false; // ユーザーが操作中かどうか
 let interactionTimeout = null; // 操作終了を検知するためのタイマー
 
 // APIエンドポイントを設定
-const apiEndpoint = getGAS_API_URL();
+const apiEndpoint = apiUrlManager.getCurrentUrl();
 // GasAPIはstaticメソッドを使用するため、インスタンス化は不要
 
   // 初期化
@@ -95,6 +95,9 @@ const apiEndpoint = getGAS_API_URL();
   showLoader(true);
 
   try {
+    // URL変更をチェック
+    checkForUrlChange();
+    
     // 現在のモードを取得して管理者権限を判定
     const currentMode = localStorage.getItem('currentMode') || 'normal';
     const isAdminMode = currentMode === 'admin' || IS_ADMIN;
@@ -313,6 +316,9 @@ function startAutoRefresh() {
           return;
         }
 
+        // URL変更をチェック
+        checkForUrlChange();
+        
         // 最適化: 通常の自動更新時は最小限のデータを取得
         let seatData;
         if (isAdminMode || isSuperAdminMode) {
@@ -665,6 +671,9 @@ async function manualRefresh() {
   showLoader(true);
   
   try {
+    // URL変更をチェック
+    checkForUrlChange();
+    
     const currentMode = localStorage.getItem('currentMode') || 'normal';
     const isAdminMode = currentMode === 'admin' || IS_ADMIN;
     const isSuperAdminMode = currentMode === 'superadmin';
@@ -1431,6 +1440,122 @@ async function refreshSeatData() {
   }
 }
 
+// URL変更時のアニメーション通知を表示する関数
+function showUrlChangeAnimation(oldUrl, newUrl, changeType = 'rotation') {
+  // 通知要素を作成
+  const notification = document.createElement('div');
+  notification.className = 'url-change-notification';
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    max-width: 90vw;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    cursor: pointer;
+  `;
+
+  // アイコンとメッセージを設定
+  const icon = changeType === 'rotation' ? '↻' : '⚡';
+  const message = changeType === 'rotation' ? 'API URL ローテーション' : 'API URL ランダム選択';
+  
+  notification.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 16px; font-weight: bold;">${icon}</span>
+      <span>${message}</span>
+      <span style="opacity: 0.8; font-size: 12px;">(${newUrl.split('/')[3].substring(0, 8)}...)</span>
+    </div>
+  `;
+
+  // 通知表示用のCSS
+  if (!document.getElementById('url-change-animation-styles')) {
+    const style = document.createElement('style');
+    style.id = 'url-change-animation-styles';
+    style.textContent = `
+      @keyframes slideInDown {
+        from {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+      }
+      @keyframes slideOutUp {
+        from {
+          opacity: 1;
+          transform: translateX(-50%) translateY(0);
+        }
+        to {
+          opacity: 0;
+          transform: translateX(-50%) translateY(-20px);
+        }
+      }
+      .url-change-notification {
+        animation: slideInDown 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+      .url-change-notification.hiding {
+        animation: slideOutUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  // 通知を表示
+  document.body.appendChild(notification);
+
+  // アニメーション開始
+  requestAnimationFrame(() => {
+    notification.style.opacity = '1';
+    notification.style.transform = 'translateX(-50%) translateY(0)';
+  });
+
+  // 3秒後に自動で消す
+  setTimeout(() => {
+    notification.classList.add('hiding');
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.remove();
+      }
+    }, 300);
+  }, 3000);
+
+  // クリックで即座に消す
+  notification.addEventListener('click', () => {
+    notification.classList.add('hiding');
+    setTimeout(() => {
+      if (notification.parentElement) {
+        notification.remove();
+      }
+    }, 300);
+  });
+}
+
+// URL変更を監視する関数
+let lastKnownUrl = apiUrlManager.getCurrentUrl();
+function checkForUrlChange() {
+  const currentUrl = apiUrlManager.getCurrentUrl();
+  if (currentUrl !== lastKnownUrl) {
+    console.log('[URL Change] 検知:', lastKnownUrl, '→', currentUrl);
+    showUrlChangeAnimation(lastKnownUrl, currentUrl, 'rotation');
+    lastKnownUrl = currentUrl;
+  }
+}
+
 // オフライン状態インジケーターの制御
 function initializeOfflineIndicator() {
   const indicator = document.getElementById('offline-indicator');
@@ -1482,8 +1607,11 @@ function initializeOfflineIndicator() {
     // 定期的に状態をチェック
     setInterval(checkSyncStatus, 1000);
     
-    // 初期状態のチェック
-    checkSyncStatus();
-  }
+  // 初期状態のチェック
+  checkSyncStatus();
+  
+  // URL変更の定期チェック（30秒ごと）
+  setInterval(checkForUrlChange, 30000);
+}
 }
 
