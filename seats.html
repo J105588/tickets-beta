@@ -123,5 +123,157 @@
   <script type="module" src="sidebar.js"></script>
   <script type="module" src="seats-main.js"></script>
   <script type="module" src="system-lock.js"></script>
+  
+  <script>
+    // URL管理システムの情報表示機能
+    function refreshUrlInfo() {
+      if (window.GasAPI && window.GasAPI.getUrlManagerInfo) {
+        // 現在のURL情報を取得
+        const oldInfo = window.GasAPI.getUrlManagerInfo();
+        console.log('[URL Refresh] 更新前URL情報:', oldInfo);
+        
+        // ランダムURL選択を実行
+        if (window.GasAPI.selectRandomUrl) {
+          const newInfo = window.GasAPI.selectRandomUrl();
+          console.log('[URL Refresh] 更新後URL情報:', newInfo);
+          
+          // URL情報表示を更新
+          const urlInfoText = document.getElementById('url-info-text');
+          if (urlInfoText) {
+            urlInfoText.textContent = `API URL: ${newInfo.index}/${newInfo.total}`;
+          }
+          
+          // URL変更アニメーションを表示（seats-main.jsの関数を使用）
+          console.log('[Seats HTML] showUrlChangeAnimation 関数の存在確認:', typeof window.showUrlChangeAnimation);
+          if (window.showUrlChangeAnimation) {
+            console.log('[Seats HTML] アニメーション表示実行');
+            window.showUrlChangeAnimation(oldInfo.url, newInfo.url, 'random');
+          } else {
+            console.warn('[Seats HTML] showUrlChangeAnimation 関数が見つかりません');
+            // フォールバック: 直接アニメーション関数を定義
+            showUrlChangeAnimationFallback(oldInfo.url, newInfo.url, 'random');
+          }
+        } else {
+          // フォールバック: 情報のみ更新
+          const info = window.GasAPI.getUrlManagerInfo();
+          const urlInfoText = document.getElementById('url-info-text');
+          if (urlInfoText) {
+            urlInfoText.textContent = `API URL: ${info.index}/${info.total}`;
+          }
+          console.log('URL管理システム情報:', info);
+        }
+      }
+    }
+
+    // フォールバック用のアニメーション関数
+    function showUrlChangeAnimationFallback(oldUrl, newUrl, changeType = 'rotation') {
+      console.log('[Fallback Animation] アニメーション表示開始:', { oldUrl, newUrl, changeType });
+      
+      // 通知要素を作成
+      const notification = document.createElement('div');
+      notification.className = 'url-change-notification';
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        max-width: 90vw;
+        text-align: center;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+      `;
+
+      // アイコンとメッセージを設定
+      const icon = changeType === 'rotation' ? '↻' : '⚡';
+      const message = changeType === 'rotation' ? 'API URL ローテーション' : 'API URL ランダム選択';
+      
+      notification.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px; font-weight: bold;">${icon}</span>
+          <span>${message}</span>
+          <span style="opacity: 0.8; font-size: 12px;">(${newUrl.split('/')[3].substring(0, 8)}...)</span>
+        </div>
+      `;
+
+      // 通知表示用のCSS
+      if (!document.getElementById('url-change-animation-styles')) {
+        const style = document.createElement('style');
+        style.id = 'url-change-animation-styles';
+        style.textContent = `
+          @keyframes slideInDown {
+            from {
+              opacity: 0;
+              transform: translateX(-50%) translateY(-20px);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(-50%) translateY(0);
+            }
+          }
+          @keyframes slideOutUp {
+            from {
+              opacity: 1;
+              transform: translateX(-50%) translateY(0);
+            }
+            to {
+              opacity: 0;
+              transform: translateX(-50%) translateY(-20px);
+            }
+          }
+          .url-change-notification {
+            animation: slideInDown 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+          }
+          .url-change-notification.hiding {
+            animation: slideOutUp 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+          }
+        `;
+        document.head.appendChild(style);
+      }
+
+      // 通知を表示
+      console.log('[Fallback Animation] 通知要素をDOMに追加');
+      document.body.appendChild(notification);
+
+      // アニメーション開始
+      console.log('[Fallback Animation] アニメーション開始');
+      requestAnimationFrame(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateX(-50%) translateY(0)';
+        console.log('[Fallback Animation] アニメーション適用完了');
+      });
+
+      // 3秒後に自動で消す
+      setTimeout(() => {
+        notification.classList.add('hiding');
+        setTimeout(() => {
+          if (notification.parentElement) {
+            notification.remove();
+          }
+        }, 300);
+      }, 3000);
+
+      // クリックで即座に消す
+      notification.addEventListener('click', () => {
+        notification.classList.add('hiding');
+        setTimeout(() => {
+          if (notification.parentElement) {
+            notification.remove();
+          }
+        }, 300);
+      });
+    }
+  </script>
 </body>
 </html>

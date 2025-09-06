@@ -640,6 +640,13 @@ window.endUserInteraction = endUserInteraction;
 window.showSeatEditModal = showSeatEditModal;
 window.closeSeatEditModal = closeSeatEditModal;
 window.updateSeatData = updateSeatData;
+window.showUrlChangeAnimation = showUrlChangeAnimation;
+
+// デバッグ用：グローバル関数の登録確認
+console.log('[Seats Main] グローバル関数登録完了:', {
+  showUrlChangeAnimation: typeof window.showUrlChangeAnimation,
+  manualRefresh: typeof window.manualRefresh
+});
 
 // 自動更新設定メニューの表示制御
 function toggleAutoRefreshSettings() {
@@ -673,11 +680,21 @@ async function manualRefresh() {
   try {
     // 手動更新時は必ず異なるURLを選択
     const oldUrl = apiUrlManager.getCurrentUrl();
+    console.log('[Manual Refresh] 更新前URL:', oldUrl);
+    
     apiUrlManager.selectRandomUrl();
     const newUrl = apiUrlManager.getCurrentUrl();
+    console.log('[Manual Refresh] 更新後URL:', newUrl);
     
     // URL変更をチェック
+    console.log('[Manual Refresh] checkForUrlChange を呼び出し');
     checkForUrlChange();
+    
+    // 手動更新時は直接アニメーションを表示
+    if (oldUrl !== newUrl) {
+      console.log('[Manual Refresh] 直接アニメーション表示');
+      showUrlChangeAnimation(oldUrl, newUrl, 'random');
+    }
     
     const currentMode = localStorage.getItem('currentMode') || 'normal';
     const isAdminMode = currentMode === 'admin' || IS_ADMIN;
@@ -1447,6 +1464,8 @@ async function refreshSeatData() {
 
 // URL変更時のアニメーション通知を表示する関数
 function showUrlChangeAnimation(oldUrl, newUrl, changeType = 'rotation') {
+  console.log('[Animation] showUrlChangeAnimation 呼び出し:', { oldUrl, newUrl, changeType });
+  
   // 通知要素を作成
   const notification = document.createElement('div');
   notification.className = 'url-change-notification';
@@ -1521,12 +1540,15 @@ function showUrlChangeAnimation(oldUrl, newUrl, changeType = 'rotation') {
   }
 
   // 通知を表示
+  console.log('[Animation] 通知要素をDOMに追加');
   document.body.appendChild(notification);
 
   // アニメーション開始
+  console.log('[Animation] アニメーション開始');
   requestAnimationFrame(() => {
     notification.style.opacity = '1';
     notification.style.transform = 'translateX(-50%) translateY(0)';
+    console.log('[Animation] アニメーション適用完了');
   });
 
   // 3秒後に自動で消す
@@ -1554,10 +1576,16 @@ function showUrlChangeAnimation(oldUrl, newUrl, changeType = 'rotation') {
 let lastKnownUrl = apiUrlManager.getCurrentUrl();
 function checkForUrlChange() {
   const currentUrl = apiUrlManager.getCurrentUrl();
+  console.log('[URL Change Check] 現在のURL:', currentUrl);
+  console.log('[URL Change Check] 前回のURL:', lastKnownUrl);
+  
   if (currentUrl !== lastKnownUrl) {
     console.log('[URL Change] 検知:', lastKnownUrl, '→', currentUrl);
+    console.log('[URL Change] showUrlChangeAnimation を呼び出し');
     showUrlChangeAnimation(lastKnownUrl, currentUrl, 'rotation');
     lastKnownUrl = currentUrl;
+  } else {
+    console.log('[URL Change] 変更なし');
   }
 }
 

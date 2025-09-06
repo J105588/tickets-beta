@@ -58,19 +58,32 @@ class APIUrlManager {
 
   // 手動でランダムURL選択（現在のURLとは異なるものを必ず選択）
   selectRandomUrl() {
+    console.log(`[API URL Manager] selectRandomUrl開始: 現在のインデックス=${this.currentIndex}, URL数=${this.urls.length}`);
+    
     if (this.urls.length > 1) {
       const oldIndex = this.currentIndex;
       const oldUrl = this.urls[oldIndex];
+      console.log(`[API URL Manager] 現在のURL: ${oldUrl}`);
       
       // 現在のURLとは異なるURLを選択
       let newIndex;
+      let attempts = 0;
       do {
         newIndex = Math.floor(Math.random() * this.urls.length);
-      } while (newIndex === oldIndex && this.urls.length > 1);
+        attempts++;
+        console.log(`[API URL Manager] 選択試行${attempts}: インデックス=${newIndex}, URL=${this.urls[newIndex]}`);
+      } while (newIndex === oldIndex && this.urls.length > 1 && attempts < 10);
+      
+      if (attempts >= 10) {
+        console.warn('[API URL Manager] 10回試行しても異なるURLが見つかりません');
+        return;
+      }
       
       this.currentIndex = newIndex;
       this.lastRotationTime = Date.now();
-      console.log(`[API URL Manager] ランダム選択: ${oldIndex + 1} → ${this.currentIndex + 1}`, this.urls[this.currentIndex]);
+      console.log(`[API URL Manager] ランダム選択完了: ${oldIndex + 1} → ${this.currentIndex + 1}`, this.urls[this.currentIndex]);
+    } else {
+      console.log('[API URL Manager] URLが1つしかないため、選択をスキップ');
     }
   }
 
