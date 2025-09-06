@@ -1,7 +1,7 @@
 // seats-main.js
 import GasAPI from './api.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
-import { GAS_API_URL, DEBUG_MODE, debugLog } from './config.js';
+import { getGAS_API_URL, DEBUG_MODE, debugLog } from './config.js';
 
 /**
  * 座席選択画面のメイン処理
@@ -22,7 +22,7 @@ let isUserInteracting = false; // ユーザーが操作中かどうか
 let interactionTimeout = null; // 操作終了を検知するためのタイマー
 
 // APIエンドポイントを設定
-const apiEndpoint = GAS_API_URL;
+const apiEndpoint = getGAS_API_URL();
 // GasAPIはstaticメソッドを使用するため、インスタンス化は不要
 
   // 初期化
