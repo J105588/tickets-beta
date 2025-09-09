@@ -5,13 +5,15 @@
 // 定数定義
 const OFFLINE_CONFIG = {
   ENABLED: true,
-  SYNC_INTERVAL_MS: 15000, // 15秒
-  MAX_RETRY_COUNT: 3, // リトライ回数を減らす
-  RETRY_DELAY_MS: 5000, // リトライ間隔を延長
-  MAX_QUEUE_SIZE: 1000,
-  SYNC_TIMEOUT_MS: 30000, // 同期タイムアウトを30秒に短縮
-  BACKGROUND_SYNC_INTERVAL: 15000, // バックグラウンド同期間隔を短縮（15秒）
-  CACHE_EXPIRY_MS: 300000 // 5分
+  SYNC_INTERVAL_MS: 10000, // 10秒に短縮（iOS対応）
+  MAX_RETRY_COUNT: 2, // iOSではリトライ回数をさらに減らす
+  RETRY_DELAY_MS: 3000, // リトライ間隔を短縮
+  MAX_QUEUE_SIZE: 500, // iOSメモリ制限に対応
+  SYNC_TIMEOUT_MS: 20000, // 同期タイムアウトを20秒に短縮
+  BACKGROUND_SYNC_INTERVAL: 10000, // バックグラウンド同期間隔を10秒に短縮
+  CACHE_EXPIRY_MS: 180000, // 3分に短縮（iOSメモリ節約）
+  BATCH_SIZE: 3, // iOS用バッチサイズ
+  MEMORY_CLEANUP_INTERVAL: 60000 // 1分ごとにメモリクリーンアップ
 };
 
 // ストレージキー
@@ -54,22 +56,27 @@ class OfflineOperationManager {
     this.operationCounter = 0;
     this.instanceId = `inst_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     this.lockKey = 'offline_sync_lock_v2';
-    this.lockTtlMs = 45000; // 45秒
+    this.lockTtlMs = 30000; // 30秒に短縮（iOS対応）
     this.bc = null;
     this.seatPrefetchInterval = null;
-    this.seatPrefetchIntervalMs = 30000; // 30秒
+    this.seatPrefetchIntervalMs = 20000; // 20秒に短縮
     this.noticePollInterval = null;
-    this.noticePollIntervalMs = 8000; // 8秒
+    this.noticePollIntervalMs = 10000; // 10秒に延長（iOS負荷軽減）
     this.lastNoticeTs = 0;
     
     // 当日券モード用の空席同期
     this.walkinSeatSyncInterval = null;
     this.walkinSeatSyncEnabled = false;
-    this.walkinSeatSyncIntervalMs = 10000; // 10秒間隔に短縮
+    this.walkinSeatSyncIntervalMs = 15000; // 15秒に延長（iOS負荷軽減）
+    
+    // iOS対応: メモリクリーンアップ用
+    this.memoryCleanupInterval = null;
+    this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     
     this.setupCrossTabChannel();
     this.initializeEventListeners();
     this.startBackgroundSync();
+    this.startMemoryCleanup();
   }
 
   /**
@@ -80,11 +87,18 @@ class OfflineOperationManager {
     window.addEventListener('offline', () => this.handleOffline());
     window.addEventListener('beforeunload', (event) => this.handleBeforeUnload(event));
     
-    // 定期的な接続状態チェック
-    setInterval(() => this.checkConnectionStatus(), 5000);
+    // iOS対応: 接続状態チェック間隔を調整
+    const connectionCheckInterval = this.isIOS ? 10000 : 5000;
+    setInterval(() => this.checkConnectionStatus(), connectionCheckInterval);
     
     // ページ可視性の変更を監視
     document.addEventListener('visibilitychange', () => this.handleVisibilityChange());
+    
+    // iOS対応: ページハイド時の処理
+    if (this.isIOS) {
+      document.addEventListener('pagehide', () => this.handlePageHide());
+      window.addEventListener('pageshow', () => this.handlePageShow());
+    }
     
     // 当日券モードの監視
     this.startWalkinModeMonitoring();
@@ -222,6 +236,11 @@ class OfflineOperationManager {
 
     // 通知ポーリング停止
     this.stopAdminNoticePolling();
+
+    // iOS対応: メモリクリーンアップを実行
+    if (this.isIOS) {
+      this.performMemoryCleanup();
+    }
   }
 
   /**
@@ -247,6 +266,30 @@ class OfflineOperationManager {
       this.performSync();
       // 可視時は事前取得も確実に走らせる
       this.startSeatDataPrefetch();
+    }
+  }
+
+  // iOS対応: ページハイド時の処理
+  handlePageHide() {
+    try {
+      // 同期状態を保存
+      this.saveSyncState();
+      // メモリクリーンアップを実行
+      this.performMemoryCleanup();
+    } catch (e) {
+      console.warn('[OfflineSync] Page hide error:', e);
+    }
+  }
+
+  // iOS対応: ページ表示時の処理
+  handlePageShow() {
+    try {
+      // 接続状態を再確認
+      this.checkConnectionStatus();
+      // 同期状態を復元
+      this.syncState = this.loadSyncState();
+    } catch (e) {
+      console.warn('[OfflineSync] Page show error:', e);
     }
   }
 
@@ -384,7 +427,11 @@ class OfflineOperationManager {
       return;
     }
 
-    console.log(`[OfflineSync] ${queue.length}件の操作を同期開始`);
+    // iOS対応: バッチサイズを制限
+    const batchSize = this.isIOS ? OFFLINE_CONFIG.BATCH_SIZE : queue.length;
+    const operationsToSync = queue.slice(0, batchSize);
+
+    console.log(`[OfflineSync] ${operationsToSync.length}件の操作を同期開始 (iOS: ${this.isIOS})`);
     this.syncInProgress = true;
     this.syncState.lastSyncAttempt = Date.now();
     this.saveSyncState();
@@ -2773,6 +2820,60 @@ class OfflineOperationManager {
     } catch (error) {
       console.error('[OfflineSync] キャッシュ有効性チェックエラー:', error);
       return false;
+    }
+  }
+
+  // メモリクリーンアップの開始
+  startMemoryCleanup() {
+    if (this.memoryCleanupInterval) return;
+    
+    this.memoryCleanupInterval = setInterval(() => {
+      this.performMemoryCleanup();
+    }, OFFLINE_CONFIG.MEMORY_CLEANUP_INTERVAL);
+  }
+
+  // メモリクリーンアップの停止
+  stopMemoryCleanup() {
+    if (this.memoryCleanupInterval) {
+      clearInterval(this.memoryCleanupInterval);
+      this.memoryCleanupInterval = null;
+    }
+  }
+
+  // メモリクリーンアップの実行
+  performMemoryCleanup() {
+    try {
+      // 古いキャッシュデータを削除
+      const cacheData = this.readCacheData();
+      const now = Date.now();
+      let cleaned = 0;
+      
+      for (const key in cacheData) {
+        if (cacheData[key].cachedAt && (now - cacheData[key].cachedAt) > OFFLINE_CONFIG.CACHE_EXPIRY_MS) {
+          delete cacheData[key];
+          cleaned++;
+        }
+      }
+      
+      if (cleaned > 0) {
+        this.writeCacheData(cacheData);
+        console.log(`[OfflineSync] メモリクリーンアップ: ${cleaned}件の古いキャッシュを削除`);
+      }
+
+      // 操作ログのサイズ制限
+      const log = this.readOperationLog();
+      if (log.length > 100) { // 最大100件に制限
+        const trimmedLog = log.slice(-100);
+        this.writeOperationLog(trimmedLog);
+        console.log(`[OfflineSync] 操作ログを${log.length - 100}件削除`);
+      }
+
+      // iOS対応: ガベージコレクションを強制実行
+      if (this.isIOS && window.gc) {
+        window.gc();
+      }
+    } catch (error) {
+      console.warn('[OfflineSync] メモリクリーンアップエラー:', error);
     }
   }
 }

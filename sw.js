@@ -1,5 +1,5 @@
 // sw.js - 静的資産キャッシュとオフライン表示の強化版
-const CACHE_NAME = 'tickets-static-v4';
+const CACHE_NAME = 'tickets-static-v5';
 const ASSETS = [
 	'./',
 	'./index.html',
@@ -19,7 +19,6 @@ const ASSETS = [
 	'./config.js',
 	'./timeslot-schedules.js',
 	'./system-lock.js',
-	'./offline-sync.js',
 	'./offline-sync-v2.js',
 	'./offline-sync-v2.css',
 	'./sw.js'
@@ -29,8 +28,23 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches.open(CACHE_NAME)
 			.then(async cache => {
-				try { await cache.addAll(ASSETS); } catch (_) {}
-				try { await cache.addAll(['./index.html?prefetch=1','./seats.html?prefetch=1','./timeslot.html?prefetch=1','./walkin.html?prefetch=1']); } catch (_) {}
+				// iOS対応: バッチサイズを制限してメモリ使用量を抑制
+				const batchSize = 5;
+				for (let i = 0; i < ASSETS.length; i += batchSize) {
+					const batch = ASSETS.slice(i, i + batchSize);
+					try { 
+						await cache.addAll(batch); 
+					} catch (e) {
+						console.warn('Cache batch failed:', e);
+					}
+				}
+				// プリフェッチ用URLもバッチ処理
+				const prefetchUrls = ['./index.html?prefetch=1','./seats.html?prefetch=1','./timeslot.html?prefetch=1','./walkin.html?prefetch=1'];
+				try { 
+					await cache.addAll(prefetchUrls); 
+				} catch (e) {
+					console.warn('Prefetch cache failed:', e);
+				}
 			})
 			.catch(() => {})
 	);
