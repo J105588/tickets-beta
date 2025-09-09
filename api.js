@@ -308,6 +308,25 @@ class GasAPI {
     return this._callApi('debugSpreadsheetStructure', [group, day, timeslot]);
   }
 
+  // 管理者向け通知をサーバー経由でブロードキャスト
+  static async broadcastAdminNotice(message, details) {
+    try {
+      return await this._callApi('broadcastAdminNotice', [message, details || {}]);
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
+  // 管理者向け通知を取得（ポーリング）
+  static async fetchAdminNotices(sinceTimestamp) {
+    try {
+      const resp = await this._callApi('fetchAdminNotices', [sinceTimestamp || 0]);
+      return resp;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  }
+
   // URL管理システムの情報を取得
   static getUrlManagerInfo() {
     return apiUrlManager.getCurrentUrlInfo();

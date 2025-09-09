@@ -1,5 +1,5 @@
 // sw.js - 静的資産キャッシュとオフライン表示の強化版
-const CACHE_NAME = 'tickets-static-v3';
+const CACHE_NAME = 'tickets-static-v4';
 const ASSETS = [
 	'./',
 	'./index.html',
@@ -17,6 +17,9 @@ const ASSETS = [
 	'./sidebar.js',
 	'./api.js',
 	'./config.js',
+	'./timeslot-schedules.js',
+	'./system-lock.js',
+	'./offline-sync.js',
 	'./offline-sync-v2.js',
 	'./offline-sync-v2.css',
 	'./sw.js'
@@ -25,7 +28,10 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches.open(CACHE_NAME)
-			.then(cache => cache.addAll(ASSETS))
+			.then(async cache => {
+				try { await cache.addAll(ASSETS); } catch (_) {}
+				try { await cache.addAll(['./index.html?prefetch=1','./seats.html?prefetch=1','./timeslot.html?prefetch=1','./walkin.html?prefetch=1']); } catch (_) {}
+			})
 			.catch(() => {})
 	);
 	// 即時有効化

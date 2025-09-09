@@ -52,12 +52,22 @@ class OfflineOperationManager {
     this.backgroundSyncInterval = null;
     this.retryTimeout = null;
     this.operationCounter = 0;
+    this.instanceId = `inst_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    this.lockKey = 'offline_sync_lock_v2';
+    this.lockTtlMs = 45000; // 45秒
+    this.bc = null;
+    this.seatPrefetchInterval = null;
+    this.seatPrefetchIntervalMs = 30000; // 30秒
+    this.noticePollInterval = null;
+    this.noticePollIntervalMs = 8000; // 8秒
+    this.lastNoticeTs = 0;
     
     // 当日券モード用の空席同期
     this.walkinSeatSyncInterval = null;
     this.walkinSeatSyncEnabled = false;
     this.walkinSeatSyncIntervalMs = 10000; // 10秒間隔に短縮
     
+    this.setupCrossTabChannel();
     this.initializeEventListeners();
     this.startBackgroundSync();
   }
@@ -68,7 +78,7 @@ class OfflineOperationManager {
   initializeEventListeners() {
     window.addEventListener('online', () => this.handleOnline());
     window.addEventListener('offline', () => this.handleOffline());
-    window.addEventListener('beforeunload', () => this.handleBeforeUnload());
+    window.addEventListener('beforeunload', (event) => this.handleBeforeUnload(event));
     
     // 定期的な接続状態チェック
     setInterval(() => this.checkConnectionStatus(), 5000);
@@ -78,6 +88,86 @@ class OfflineOperationManager {
     
     // 当日券モードの監視
     this.startWalkinModeMonitoring();
+
+    // storageイベントで他タブからの更新を検知
+    window.addEventListener('storage', (e) => {
+      try {
+        if (e.key === this.lockKey) {
+          return; // ロックの変更は無視
+        }
+        if (e.key === STORAGE_KEYS.OPERATION_QUEUE) {
+          const q = this.readOperationQueue();
+          if (this.isOnline && q.length > 0 && !this.syncInProgress) {
+            this.performSync();
+          }
+        }
+      } catch (_) {}
+    });
+  }
+
+  // BroadcastChannel によるタブ間連携
+  setupCrossTabChannel() {
+    try {
+      if ('BroadcastChannel' in window) {
+        this.bc = new BroadcastChannel('offline-sync-v2');
+        this.bc.onmessage = (ev) => {
+          const data = ev.data || {};
+          if (data.type === 'queue-updated') {
+            if (this.isOnline && !this.syncInProgress) {
+              this.performSync();
+            }
+          } else if (data.type === 'sync-started' && data.owner && data.owner !== this.instanceId) {
+            this.syncInProgress = true;
+          } else if (data.type === 'sync-finished') {
+            this.syncInProgress = false;
+          }
+        };
+      }
+    } catch (e) {
+      console.warn('[OfflineSync] BroadcastChannel 初期化に失敗:', e);
+    }
+  }
+
+  broadcast(message) {
+    try { if (this.bc) { this.bc.postMessage(message); } } catch (_) {}
+  }
+
+  // 競合回避のためのロック獲得
+  tryAcquireLock() {
+    try {
+      const now = Date.now();
+      const current = localStorage.getItem(this.lockKey);
+      if (current) {
+        const parsed = JSON.parse(current);
+        if (parsed && parsed.expiresAt && parsed.expiresAt > now) {
+          return false; // ロックが生存
+        }
+      }
+      const lock = { owner: this.instanceId, acquiredAt: now, expiresAt: now + this.lockTtlMs };
+      localStorage.setItem(this.lockKey, JSON.stringify(lock));
+      const confirm = JSON.parse(localStorage.getItem(this.lockKey) || '{}');
+      return confirm.owner === this.instanceId;
+    } catch (e) {
+      console.warn('[OfflineSync] ロック取得に失敗:', e);
+      return true; // ロックできない環境では続行
+    }
+  }
+
+  refreshLock() {
+    try {
+      const now = Date.now();
+      const lock = { owner: this.instanceId, acquiredAt: now, expiresAt: now + this.lockTtlMs };
+      localStorage.setItem(this.lockKey, JSON.stringify(lock));
+    } catch (_) {}
+  }
+
+  releaseLock() {
+    try {
+      const current = JSON.parse(localStorage.getItem(this.lockKey) || '{}');
+      if (current.owner === this.instanceId) {
+        localStorage.removeItem(this.lockKey);
+      }
+    } catch (_) {}
   }
 
   /**
@@ -99,6 +189,12 @@ class OfflineOperationManager {
     
     // バックグラウンド同期を再開
     this.startBackgroundSync();
+
+    // 座席データのバックグラウンド事前取得を開始
+    this.startSeatDataPrefetch();
+
+    // 管理者通知ポーリングを開始
+    this.startAdminNoticePolling();
   }
 
   /**
@@ -120,6 +216,12 @@ class OfflineOperationManager {
     
     // オフライン操作モードに切り替え
     await this.installOfflineOverrides();
+
+    // 座席データ事前取得はオンライン時のみ
+    this.stopSeatDataPrefetch();
+
+    // 通知ポーリング停止
+    this.stopAdminNoticePolling();
   }
 
   /**
@@ -143,20 +245,26 @@ class OfflineOperationManager {
     if (document.visibilityState === 'visible' && this.isOnline) {
       // ページが表示された時に同期を実行
       this.performSync();
+      // 可視時は事前取得も確実に走らせる
+      this.startSeatDataPrefetch();
     }
   }
 
   /**
    * ページ離脱時の処理
    */
-  handleBeforeUnload() {
+  handleBeforeUnload(event) {
     // 同期状態を保存
     this.saveSyncState();
     
     // 未同期の操作がある場合は警告
     const queue = this.readOperationQueue();
     if (queue.length > 0) {
-      return 'オフライン操作が未同期です。ページを離れますか？';
+      try {
+        event.preventDefault();
+        event.returnValue = '';
+      } catch (_) {}
+      return '';
     }
   }
 
@@ -188,7 +296,11 @@ class OfflineOperationManager {
     queue.sort((a, b) => a.priority - b.priority);
     
     this.writeOperationQueue(queue);
+    this.broadcast({ type: 'queue-updated' });
     this.logOperation(operationWithMeta);
+
+    // コンテキストを学習して事前取得対象に追加
+    try { const ctx = this.extractContext(operation.args); this.trackKnownContext(ctx); } catch (_) {}
     
     console.log(`[OfflineSync] オフライン操作を追加: ${operation.type} (ID: ${operationWithMeta.id})`);
     
@@ -257,9 +369,18 @@ class OfflineOperationManager {
       return;
     }
 
+    // タブ間排他ロック
+    if (!this.tryAcquireLock()) {
+      console.log('[OfflineSync] 他タブで同期中のため待機');
+      return;
+    }
+    this.broadcast({ type: 'sync-started', owner: this.instanceId });
+
     const queue = this.readOperationQueue();
     if (queue.length === 0) {
       console.log('[OfflineSync] 同期する操作がありません');
+      this.releaseLock();
+      this.broadcast({ type: 'sync-finished' });
       return;
     }
 
@@ -277,6 +398,8 @@ class OfflineOperationManager {
       console.warn('[OfflineSync] GasAPI未準備のため、同期を後で再試行します:', e.message);
       this.syncInProgress = false;
       this.hideSyncModal();
+      this.releaseLock();
+      this.broadcast({ type: 'sync-finished' });
       setTimeout(() => { this.performSync(); }, OFFLINE_CONFIG.RETRY_DELAY_MS);
       return;
     }
@@ -287,6 +410,8 @@ class OfflineOperationManager {
         console.error('[OfflineSync] 同期タイムアウト');
         this.syncInProgress = false;
         this.hideSyncModal();
+        this.releaseLock();
+        this.broadcast({ type: 'sync-finished' });
         // エラー通知を安全に表示
         try {
           this.showErrorNotification('同期がタイムアウトしました。手動で再試行してください。');
@@ -307,6 +432,7 @@ class OfflineOperationManager {
       
       // 成功した操作をキューから削除
       this.writeOperationQueue(result.remaining);
+      this.broadcast({ type: 'queue-updated' });
       
       // 同期状態を更新
       this.syncState.lastSuccessfulSync = Date.now();
@@ -349,6 +475,8 @@ class OfflineOperationManager {
       console.log('[OfflineSync] 同期処理終了');
       this.syncInProgress = false;
       this.hideSyncModal();
+      this.releaseLock();
+      this.broadcast({ type: 'sync-finished' });
     }
   }
 
@@ -673,11 +801,50 @@ class OfflineOperationManager {
             if (result.success) {
               console.log(`[OfflineSync] 競合解決成功: ${conflict.type} (ID: ${conflict.id})`);
             }
+            // 競合発生を通知（管理者向けブロードキャスト）
+            await this.notifyConflict(conflict, freshData);
           }
         }
       } catch (error) {
         console.error(`[OfflineSync] 競合解決エラー: ${conflict.type} (ID: ${conflict.id})`, error);
+        // エラーも通知
+        try { await this.notifyConflict(conflict, null, error); } catch (_) {}
       }
+    }
+  }
+
+  // 競合通知の送信（ローカル通知 + 可能ならサーバーブロードキャスト）
+  async notifyConflict(operation, latestData = null, error = null) {
+    try {
+      // 現在モードの推定
+      let mode = 'normal';
+      try { mode = localStorage.getItem('currentMode') || 'normal'; } catch (_) {}
+      const ctx = this.extractContext(operation.args) || {};
+      const message = `競合が発生しました: type=${operation.type}, group=${ctx.group}, day=${ctx.day}, timeslot=${ctx.timeslot}`;
+      const details = {
+        mode,
+        operationId: operation.id,
+        operationType: operation.type,
+        timestamp: new Date().toISOString(),
+        error: error ? (error.message || String(error)) : undefined,
+        latestVersion: latestData && latestData.version ? latestData.version : undefined
+      };
+
+      // ローカル通知（画面）
+      this.showErrorNotification(`${message}`);
+      try { console.warn('[OfflineSync] 競合詳細:', details); } catch (_) {}
+
+      // 最高管理者モード端末向けにサーバー通知を試行
+      try {
+        if (window.GasAPI && window.GasAPI.broadcastAdminNotice) {
+          window.GasAPI.broadcastAdminNotice(message, details).catch(() => {});
+        }
+      } catch (_) {}
+
+      // タブ間にも通知
+      this.broadcast({ type: 'conflict', payload: { message, details } });
+    } catch (e) {
+      console.error('[OfflineSync] 競合通知の送信に失敗:', e);
     }
   }
 
@@ -1197,9 +1364,8 @@ class OfflineOperationManager {
       
       notification.innerHTML = `
         <div class="notification-content">
-          <span class="notification-icon">✓</span>
           <span class="notification-message">${message}</span>
-          <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+          <button class="notification-close" onclick="this.parentElement.parentElement.remove()">閉じる</button>
         </div>
       `;
       
@@ -1225,16 +1391,14 @@ class OfflineOperationManager {
       const notification = document.createElement('div');
       notification.className = 'offline-processing-notification';
       
-      const icon = isLocal ? '🔄' : '📡';
       const type = isLocal ? 'ローカル処理' : 'オフライン処理';
       
       notification.innerHTML = `
         <div class="notification-content">
-          <span class="notification-icon">${icon}</span>
           <span class="notification-message">
             <strong>${type}:</strong> ${message}
           </span>
-          <button class="notification-close" onclick="this.parentElement.parentElement.remove()">×</button>
+          <button class="notification-close" onclick="this.parentElement.parentElement.remove()">閉じる</button>
         </div>
       `;
       
@@ -1921,6 +2085,14 @@ class OfflineOperationManager {
           version: Date.now().toString()
         });
       }
+      // オンラインであれば、主要ページで必要な座席データを事前取得
+      if (this.isOnline) {
+        try {
+          await this.prefetchSeatDataIfPossible();
+        } catch (_) {}
+      }
+      // 現在のコンテキストを学習
+      this.trackKnownContext({ group, day, timeslot });
     } catch (error) {
       console.error('[OfflineSync] 初期化エラー:', error);
     }
@@ -1939,7 +2111,185 @@ class OfflineOperationManager {
     // どのページでも設定から同期操作できるボタン/メニューを注入
     try { this.injectGlobalSettingsEntry(); } catch (_) {}
 
+    // 座席データのバックグラウンド事前取得
+    if (this.isOnline) {
+      this.startSeatDataPrefetch();
+      this.startAdminNoticePolling();
+    }
+
     console.log('[OfflineSync] 初期化完了');
+  }
+
+  // 最高管理者向け通知のポーリング開始
+  startAdminNoticePolling() {
+    try {
+      if (this.noticePollInterval) return;
+      // 最高管理者モードのみ対象
+      const mode = (localStorage.getItem('currentMode') || 'normal');
+      if (mode !== 'superadmin') return;
+      this.noticePollInterval = setInterval(async () => {
+        try {
+          if (!window.GasAPI || !window.GasAPI.fetchAdminNotices) return;
+          const resp = await window.GasAPI.fetchAdminNotices(this.lastNoticeTs || 0);
+          if (resp && resp.success && Array.isArray(resp.notices)) {
+            for (const n of resp.notices) {
+              try {
+                const ts = n.timestamp || Date.now();
+                this.lastNoticeTs = Math.max(this.lastNoticeTs || 0, ts);
+                this.showConflictAdminNotice(n);
+              } catch (_) {}
+            }
+          }
+        } catch (_) {}
+      }, this.noticePollIntervalMs);
+    } catch (_) {}
+  }
+
+  stopAdminNoticePolling() {
+    try { if (this.noticePollInterval) { clearInterval(this.noticePollInterval); this.noticePollInterval = null; } } catch (_) {}
+  }
+
+  // 受信通知の表示（最高管理者）
+  showConflictAdminNotice(notice) {
+    try {
+      const msg = notice && notice.message ? notice.message : '競合が発生しました';
+      const detail = notice && notice.details ? notice.details : {};
+      const div = document.createElement('div');
+      div.className = 'sync-failure-notification';
+      div.innerHTML = `
+        <div class="notification-content">
+          <h4>競合警告</h4>
+          <p>${msg}</p>
+          ${detail && detail.operationType ? `<p>操作: ${detail.operationType}</p>` : ''}
+          ${detail && detail.mode ? `<p>モード: ${detail.mode}</p>` : ''}
+          ${detail && detail.timestamp ? `<p>時刻: ${new Date(detail.timestamp).toLocaleString('ja-JP')}</p>` : ''}
+          <button onclick="this.parentElement.parentElement.remove()">閉じる</button>
+        </div>`;
+      document.body.appendChild(div);
+      setTimeout(() => { try { if (div && div.parentElement) div.remove(); } catch (_) {} }, 10000);
+    } catch (e) {
+      try { alert('競合警告: ' + (notice && notice.message ? notice.message : '')); } catch (_) {}
+    }
+  }
+
+  // 主要ページでの座席データ事前取得
+  async prefetchSeatDataIfPossible() {
+    try {
+      const ctx = this.getCurrentContext();
+      if (!ctx || !ctx.group || !ctx.day || !ctx.timeslot) {
+        return; // コンテキストが不明ならスキップ
+      }
+      const existing = this.readCache(ctx.group, ctx.day, ctx.timeslot);
+      const isStale = !existing || !existing.cachedAt || (Date.now() - existing.cachedAt) > (OFFLINE_CONFIG.CACHE_EXPIRY_MS / 2);
+      if (!isStale) return;
+
+      const gasAPI = await this.waitForGasAPI();
+      const fresh = await gasAPI.getSeatDataMinimal(ctx.group, ctx.day, ctx.timeslot, false);
+      if (fresh && fresh.success) {
+        this.writeCache(ctx.group, ctx.day, ctx.timeslot, fresh);
+        console.log('[OfflineSync] 事前取得: 座席データをキャッシュしました');
+      }
+    } catch (e) {
+      console.warn('[OfflineSync] 事前取得に失敗:', e);
+    }
+  }
+
+  // 既知のコンテキストを記録
+  trackKnownContext(ctx) {
+    try {
+      if (!ctx || !ctx.group || !ctx.day || !ctx.timeslot) return;
+      this.syncState.knownContexts = Array.isArray(this.syncState.knownContexts) ? this.syncState.knownContexts : [];
+      const key = `${ctx.group}::${ctx.day}::${ctx.timeslot}`;
+      const exists = this.syncState.knownContexts.some(k => k === key);
+      if (!exists) {
+        this.syncState.knownContexts.push(key);
+        // サイズ上限
+        if (this.syncState.knownContexts.length > 30) {
+          this.syncState.knownContexts.splice(0, this.syncState.knownContexts.length - 30);
+        }
+        this.saveSyncState();
+      }
+    } catch (_) {}
+  }
+
+  // スプシID一覧（座席データ事前取得用）
+  getSeatPrefetchSpreadsheetIds() {
+    const ids = [];
+    try { if (window.SPREADSHEET_ID) ids.push(window.SPREADSHEET_ID); } catch (_) {}
+    try { if (window.OFFLINE_SPREADSHEET_ID) ids.push(window.OFFLINE_SPREADSHEET_ID); } catch (_) {}
+    try { if (window.SPREADSHEET_IDS && Array.isArray(window.SPREADSHEET_IDS)) ids.push(...window.SPREADSHEET_IDS); } catch (_) {}
+    try { if (window.SEAT_PREFETCH_IDS && Array.isArray(window.SEAT_PREFETCH_IDS)) ids.push(...window.SEAT_PREFETCH_IDS); } catch (_) {}
+    return [...new Set(ids)];
+  }
+
+  // 任意スプシIDから座席データを取得しキャッシュ
+  async fetchSeatDataForSpreadsheet(spreadsheetId, group, day, timeslot) {
+    return new Promise((resolve, reject) => {
+      try {
+        const script = document.createElement('script');
+        const callbackName = `seatPrefetch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        window[callbackName] = (response) => {
+          try {
+            document.head.removeChild(script);
+          } catch (_) {}
+          delete window[callbackName];
+          if (response && response.success) {
+            this.writeCache(group, day, timeslot, response);
+            resolve(true);
+          } else {
+            resolve(false);
+          }
+        };
+        const params = [group, day, timeslot, false];
+        script.src = `https://script.google.com/macros/s/${spreadsheetId}/exec?callback=${callbackName}&func=getSeatDataMinimal&params=${encodeURIComponent(JSON.stringify(params))}`;
+        script.onerror = () => {
+          try { document.head.removeChild(script); } catch (_) {}
+          delete window[callbackName];
+          resolve(false);
+        };
+        document.head.appendChild(script);
+        setTimeout(() => {
+          if (window[callbackName]) {
+            try { document.head.removeChild(script); } catch (_) {}
+            delete window[callbackName];
+            resolve(false);
+          }
+        }, 10000);
+      } catch (e) {
+        resolve(false);
+      }
+    });
+  }
+
+  // 事前取得の開始/停止
+  startSeatDataPrefetch() {
+    try {
+      if (this.seatPrefetchInterval) return;
+      this.seatPrefetchInterval = setInterval(async () => {
+        if (!this.isOnline) return;
+        const ids = this.getSeatPrefetchSpreadsheetIds();
+        const contexts = (this.syncState.knownContexts || []).map(k => {
+          const [group, day, timeslot] = (k || '').split('::');
+          return { group, day, timeslot };
+        }).filter(c => c.group && c.day && c.timeslot);
+        // 現在ページも確実に含める
+        const curr = this.getCurrentContext();
+        if (curr && curr.group && curr.day && curr.timeslot) {
+          contexts.unshift(curr);
+        }
+        // 最大数を制限
+        const limited = contexts.slice(0, 10);
+        for (const spreadsheetId of ids) {
+          for (const ctx of limited) {
+            try { await this.fetchSeatDataForSpreadsheet(spreadsheetId, ctx.group, ctx.day, ctx.timeslot); } catch (_) {}
+          }
+        }
+      }, this.seatPrefetchIntervalMs);
+    } catch (_) {}
+  }
+
+  stopSeatDataPrefetch() {
+    try { if (this.seatPrefetchInterval) { clearInterval(this.seatPrefetchInterval); this.seatPrefetchInterval = null; } } catch (_) {}
   }
 
   /**
