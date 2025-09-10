@@ -1381,5 +1381,3 @@ SeatApp.getAllUrls()
 - 画面右上に現在のURL番号を表示（例：API URL: 2/4）
 - 更新ボタンで手動でURL情報を更新可能
 - コンソールログで詳細な動作を確認
-
-詳細は [API_URL_SETUP.md](API_URL_SETUP.md) を参照してください。
