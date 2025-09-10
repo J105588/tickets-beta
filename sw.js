@@ -1,11 +1,12 @@
 // sw.js - 静的資産キャッシュとオフライン表示の強化版
-const CACHE_NAME = 'tickets-static-v5';
+const CACHE_NAME = 'tickets-optimized-v1';
 const ASSETS = [
 	'./',
 	'./index.html',
 	'./timeslot.html',
 	'./seats.html',
 	'./walkin.html',
+	'./manifest.json',
 	'./styles.css',
 	'./sidebar.css',
 	'./seats.css',
@@ -21,6 +22,11 @@ const ASSETS = [
 	'./system-lock.js',
 	'./offline-sync-v2.js',
 	'./offline-sync-v2.css',
+	'./pwa-install.js',
+	'./optimized-loader.js',
+	'./api-cache.js',
+	'./optimized-api.js',
+	'./ui-optimizer.js',
 	'./sw.js'
 ];
 

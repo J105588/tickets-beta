@@ -1,7 +1,8 @@
-// seats-main.js
-import GasAPI from './api.js';
+// seats-main.js - 最適化版
+import OptimizedGasAPI from './optimized-api.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
 import { apiUrlManager, DEBUG_MODE, debugLog } from './config.js';
+import uiOptimizer from './ui-optimizer.js';
 
 /**
  * 座席選択画面のメイン処理
@@ -23,7 +24,7 @@ let interactionTimeout = null; // 操作終了を検知するためのタイマ�
 
 // APIエンドポイントを設定
 const apiEndpoint = apiUrlManager.getCurrentUrl();
-// GasAPIはstaticメソッドを使用するため、インスタンス化は不要
+// OptimizedGasAPIはstaticメソッドを使用するため、インスタンス化は不要
 
   // 初期化
   window.onload = async () => {
