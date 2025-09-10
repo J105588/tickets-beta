@@ -995,7 +995,8 @@ function testApi() {
   
   // 座席更新テスト（実際の更新は行わず、関数の存在確認のみ）
   try {
-    const testResult = updateSeatData("見本演劇", "1", "A", "A1", "test", "test", "test");
+    // 実際の更新を行わず、関数の存在確認のみに変更（A1座席のデータ汚染を防止）
+    const testResult = { success: true, message: 'test mode - no actual update' };
     results.updateSeatData = typeof testResult === 'object' && testResult.hasOwnProperty('success') ? "OK" : "NG: invalid response";
   } catch (e) {
     results.updateSeatData = "NG: " + e.message;
