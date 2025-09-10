@@ -1,5 +1,5 @@
 // sw.js - 静的資産キャッシュとオフライン表示の強化版
-const CACHE_NAME = 'tickets-optimized-v2';
+const CACHE_NAME = 'tickets-optimized-v3';
 const CRITICAL_ASSETS = [
 	'./',
 	'./index.html',
@@ -72,6 +72,19 @@ self.addEventListener('activate', (event) => {
 	);
 	// 既存クライアントへ即適用
 	self.clients.claim();
+});
+
+// 更新検知とクライアント通知
+self.addEventListener('message', (event) => {
+	if (event.data && event.data.type === 'SKIP_WAITING') {
+		self.skipWaiting();
+	}
+});
+
+// 更新が利用可能になった時の処理
+self.addEventListener('controllerchange', () => {
+	// ページをリロードして新しいService Workerを適用
+	window.location.reload();
 });
 
 self.addEventListener('fetch', (event) => {

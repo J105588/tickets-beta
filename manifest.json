@@ -2,6 +2,7 @@
   "name": "座席管理システム",
   "short_name": "座席管理",
   "description": "文化祭やイベント向けの座席予約・チェックイン・当日券発行システム",
+  "version": "1.0.3",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
