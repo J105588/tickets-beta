@@ -17,29 +17,36 @@ class OptimizedLoader {
   setupDependencies() {
     // 依存関係の定義（最適化された順序）
     this.dependencies.set('config', []);
-    this.dependencies.set('api', ['config']);
+    this.dependencies.set('api-cache', []);
+    this.dependencies.set('optimized-api', ['config', 'api-cache']);
     this.dependencies.set('error-handler', []);
-    this.dependencies.set('system-lock', ['error-handler', 'api']);
-    this.dependencies.set('sidebar', ['api']);
-    this.dependencies.set('offline-sync-v2', ['config', 'api']);
+    this.dependencies.set('system-lock', ['error-handler', 'optimized-api']);
+    this.dependencies.set('sidebar', ['optimized-api']);
+    this.dependencies.set('offline-sync-v2', ['config', 'optimized-api']);
+    this.dependencies.set('ui-optimizer', []);
+    this.dependencies.set('performance-monitor', []);
     this.dependencies.set('pwa-install', []);
   }
 
   async initializeCriticalModules() {
-    // クリティカルパスのモジュールを並列読み込み
-    const criticalModules = ['config', 'error-handler'];
-    await Promise.all(criticalModules.map(module => this.loadModule(module)));
+    // API通信関係を最優先で読み込み
+    const apiCriticalModules = ['config', 'api-cache', 'optimized-api'];
+    await Promise.all(apiCriticalModules.map(module => this.loadModule(module)));
+    
+    // エラーハンドリングを次に読み込み
+    const errorHandlingModules = ['error-handler'];
+    await Promise.all(errorHandlingModules.map(module => this.loadModule(module)));
     
     // セカンダリモジュールを並列読み込み
-    const secondaryModules = ['api', 'pwa-install'];
+    const secondaryModules = ['ui-optimizer', 'performance-monitor'];
     await Promise.all(secondaryModules.map(module => this.loadModule(module)));
     
     // その他のモジュールを並列読み込み
-    const otherModules = ['system-lock', 'sidebar', 'offline-sync-v2'];
+    const otherModules = ['system-lock', 'sidebar', 'offline-sync-v2', 'pwa-install'];
     await Promise.all(otherModules.map(module => this.loadModule(module)));
     
     this.performanceMetrics.totalLoadTime = performance.now() - this.performanceMetrics.loadStart;
-    console.log('🚀 モジュール読み込み完了:', {
+    console.log('🚀 モジュール読み込み完了（API通信最優先）:', {
       totalTime: `${this.performanceMetrics.totalLoadTime.toFixed(2)}ms`,
       loadedModules: Array.from(this.loadedModules)
     });
@@ -77,11 +84,14 @@ class OptimizedLoader {
 
     const moduleMap = {
       'config': () => import('./config.js'),
-      'api': () => import('./api.js'),
+      'api-cache': () => import('./api-cache.js'),
+      'optimized-api': () => import('./optimized-api.js'),
       'error-handler': () => import('./error-handler.js'),
       'system-lock': () => import('./system-lock.js'),
       'sidebar': () => import('./sidebar.js'),
       'offline-sync-v2': () => this._loadOfflineSync(),
+      'ui-optimizer': () => import('./ui-optimizer.js'),
+      'performance-monitor': () => import('./performance-monitor.js'),
       'pwa-install': () => this._loadPWAInstall()
     };
 

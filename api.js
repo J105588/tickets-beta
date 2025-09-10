@@ -99,7 +99,7 @@ class GasAPI {
             this._reportError(`JSONPタイムアウト: ${functionName}`);
             resolve({ success: false, error: `JSONPタイムアウト: ${functionName}`, timeout: true });
           }
-        }, 15000);
+        }, 10000); // API通信最優先: タイムアウトを10秒に短縮
 
         script.onerror = (error) => {
           console.error('API call error:', error, { functionName, fullUrl });

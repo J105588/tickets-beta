@@ -44,39 +44,36 @@ class PWAInstallHandler {
   createInstallButton() {
     if (this.isInstalled) return;
 
-    // インストールボタンを作成
+    // シンプルなインストールボタンを作成
     this.installButton = document.createElement('button');
     this.installButton.id = 'pwa-install-btn';
-    this.installButton.innerHTML = '📱 アプリをインストール';
+    this.installButton.innerHTML = 'インストール';
     this.installButton.className = 'pwa-install-btn';
     this.installButton.style.cssText = `
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      background: #007bff;
       color: white;
       border: none;
-      padding: 12px 20px;
-      border-radius: 25px;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      padding: 8px 16px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 500;
       z-index: 1000;
-      transition: all 0.3s ease;
       display: none;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     `;
 
-    // ホバー効果
+    // シンプルなホバー効果
     this.installButton.addEventListener('mouseenter', () => {
-      this.installButton.style.transform = 'translateY(-2px)';
-      this.installButton.style.boxShadow = '0 6px 25px rgba(0, 0, 0, 0.4)';
+      this.installButton.style.background = '#0056b3';
     });
 
     this.installButton.addEventListener('mouseleave', () => {
-      this.installButton.style.transform = 'translateY(0)';
-      this.installButton.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.3)';
+      this.installButton.style.background = '#007bff';
     });
 
     // クリックイベント
@@ -90,18 +87,6 @@ class PWAInstallHandler {
   showInstallButton() {
     if (this.installButton && !this.isInstalled) {
       this.installButton.style.display = 'block';
-      
-      // アニメーション表示
-      setTimeout(() => {
-        this.installButton.style.opacity = '0';
-        this.installButton.style.transform = 'translateY(20px)';
-        this.installButton.style.transition = 'all 0.3s ease';
-        
-        requestAnimationFrame(() => {
-          this.installButton.style.opacity = '1';
-          this.installButton.style.transform = 'translateY(0)';
-        });
-      }, 100);
     }
   }
 
@@ -141,7 +126,7 @@ class PWAInstallHandler {
   }
 
   showManualInstallInstructions() {
-    // 手動インストール手順のモーダルを表示
+    // シンプルな手動インストール手順のモーダルを表示
     const modal = document.createElement('div');
     modal.className = 'pwa-install-modal';
     modal.style.cssText = `
@@ -150,7 +135,7 @@ class PWAInstallHandler {
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.8);
+      background: rgba(0, 0, 0, 0.7);
       display: flex;
       justify-content: center;
       align-items: center;
@@ -160,29 +145,26 @@ class PWAInstallHandler {
     const content = document.createElement('div');
     content.style.cssText = `
       background: white;
-      padding: 30px;
-      border-radius: 15px;
-      max-width: 400px;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 350px;
       text-align: center;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     `;
 
     content.innerHTML = `
-      <h3 style="margin-top: 0; color: #333;">📱 アプリをインストール</h3>
-      <p style="color: #666; line-height: 1.6;">
-        <strong>Chrome/Edge:</strong><br>
-        アドレスバーの「インストール」ボタンをクリック
+      <h3 style="margin-top: 0; color: #333; font-size: 16px;">アプリをインストール</h3>
+      <p style="color: #666; line-height: 1.4; font-size: 14px; margin: 10px 0;">
+        <strong>Chrome/Edge:</strong> アドレスバーの「インストール」ボタン
       </p>
-      <p style="color: #666; line-height: 1.6;">
-        <strong>Safari (iOS):</strong><br>
-        共有ボタン → 「ホーム画面に追加」
+      <p style="color: #666; line-height: 1.4; font-size: 14px; margin: 10px 0;">
+        <strong>Safari (iOS):</strong> 共有ボタン → 「ホーム画面に追加」
       </p>
-      <p style="color: #666; line-height: 1.6;">
-        <strong>Firefox:</strong><br>
-        アドレスバーの「+」ボタンをクリック
+      <p style="color: #666; line-height: 1.4; font-size: 14px; margin: 10px 0;">
+        <strong>Firefox:</strong> アドレスバーの「+」ボタン
       </p>
       <button onclick="this.closest('.pwa-install-modal').remove()" 
-              style="background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 15px;">
+              style="background: #007bff; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; font-size: 14px;">
         閉じる
       </button>
     `;

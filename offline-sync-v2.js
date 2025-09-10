@@ -5,15 +5,15 @@
 // 定数定義
 const OFFLINE_CONFIG = {
   ENABLED: true,
-  SYNC_INTERVAL_MS: 10000, // 10秒に短縮（iOS対応）
+  SYNC_INTERVAL_MS: 15000, // 15秒に延長（パフォーマンス向上）
   MAX_RETRY_COUNT: 2, // iOSではリトライ回数をさらに減らす
-  RETRY_DELAY_MS: 3000, // リトライ間隔を短縮
-  MAX_QUEUE_SIZE: 500, // iOSメモリ制限に対応
-  SYNC_TIMEOUT_MS: 20000, // 同期タイムアウトを20秒に短縮
-  BACKGROUND_SYNC_INTERVAL: 10000, // バックグラウンド同期間隔を10秒に短縮
-  CACHE_EXPIRY_MS: 180000, // 3分に短縮（iOSメモリ節約）
-  BATCH_SIZE: 3, // iOS用バッチサイズ
-  MEMORY_CLEANUP_INTERVAL: 60000 // 1分ごとにメモリクリーンアップ
+  RETRY_DELAY_MS: 5000, // リトライ間隔を延長
+  MAX_QUEUE_SIZE: 200, // iOSメモリ制限に対応（さらに削減）
+  SYNC_TIMEOUT_MS: 25000, // 同期タイムアウトを25秒に延長
+  BACKGROUND_SYNC_INTERVAL: 15000, // バックグラウンド同期間隔を15秒に延長
+  CACHE_EXPIRY_MS: 300000, // 5分に延長（iOSメモリ節約）
+  BATCH_SIZE: 2, // iOS用バッチサイズ（さらに削減）
+  MEMORY_CLEANUP_INTERVAL: 30000 // 30秒ごとにメモリクリーンアップ（頻度向上）
 };
 
 // ストレージキー
@@ -59,15 +59,15 @@ class OfflineOperationManager {
     this.lockTtlMs = 30000; // 30秒に短縮（iOS対応）
     this.bc = null;
     this.seatPrefetchInterval = null;
-    this.seatPrefetchIntervalMs = 20000; // 20秒に短縮
+    this.seatPrefetchIntervalMs = 30000; // 30秒に延長（パフォーマンス向上）
     this.noticePollInterval = null;
-    this.noticePollIntervalMs = 10000; // 10秒に延長（iOS負荷軽減）
+    this.noticePollIntervalMs = 20000; // 20秒に延長（iOS負荷軽減）
     this.lastNoticeTs = 0;
     
     // 当日券モード用の空席同期
     this.walkinSeatSyncInterval = null;
     this.walkinSeatSyncEnabled = false;
-    this.walkinSeatSyncIntervalMs = 15000; // 15秒に延長（iOS負荷軽減）
+    this.walkinSeatSyncIntervalMs = 25000; // 25秒に延長（iOS負荷軽減）
     
     // iOS対応: メモリクリーンアップ用
     this.memoryCleanupInterval = null;
@@ -88,7 +88,7 @@ class OfflineOperationManager {
     window.addEventListener('beforeunload', (event) => this.handleBeforeUnload(event));
     
     // iOS対応: 接続状態チェック間隔を調整
-    const connectionCheckInterval = this.isIOS ? 10000 : 5000;
+    const connectionCheckInterval = this.isIOS ? 15000 : 8000;
     setInterval(() => this.checkConnectionStatus(), connectionCheckInterval);
     
     // ページ可視性の変更を監視
@@ -1621,7 +1621,7 @@ class OfflineOperationManager {
   }
 
   /**
-   * キャッシュの読み取り
+   * キャッシュの読み取り（オフライン時専用強化版）
    */
   readCache(group, day, timeslot) {
     try {
@@ -1631,10 +1631,45 @@ class OfflineOperationManager {
       
       const cache = JSON.parse(data);
       
+      // オフライン時は有効期限を延長（通常の3倍）
+      const isOffline = !navigator.onLine;
+      const expiryMs = isOffline ? OFFLINE_CONFIG.CACHE_EXPIRY_MS * 3 : OFFLINE_CONFIG.CACHE_EXPIRY_MS;
+      
       // キャッシュの有効期限チェック
-      if (cache.cachedAt && (Date.now() - cache.cachedAt) > OFFLINE_CONFIG.CACHE_EXPIRY_MS) {
-        localStorage.removeItem(key);
+      if (cache.cachedAt && (Date.now() - cache.cachedAt) > expiryMs) {
+        if (!isOffline) {
+          // オンライン時のみキャッシュを削除
+          localStorage.removeItem(key);
+        }
         return null;
+      }
+      
+      // オフライン時の座席データ復元強化
+      if (isOffline && cache.seatMap) {
+        console.log('[OfflineSync] オフライン時の座席キャッシュ復元:', {
+          group, day, timeslot,
+          seatCount: Object.keys(cache.seatMap).length,
+          cacheAge: Math.round((Date.now() - cache.cachedAt) / 1000) + '秒前'
+        });
+        
+        // 座席データの整合性チェックと修復
+        const repairedSeatMap = {};
+        Object.entries(cache.seatMap).forEach(([seatId, seatData]) => {
+          if (seatData && typeof seatData === 'object') {
+            // 基本的な座席データ構造を保証
+            repairedSeatMap[seatId] = {
+              id: seatId,
+              status: seatData.status || 'available',
+              name: seatData.name || null,
+              ...seatData
+            };
+          }
+        });
+        
+        if (Object.keys(repairedSeatMap).length > 0) {
+          cache.seatMap = repairedSeatMap;
+          console.log('[OfflineSync] 座席データ修復完了:', Object.keys(repairedSeatMap).length + '席');
+        }
       }
       
       return cache;
@@ -2025,17 +2060,54 @@ class OfflineOperationManager {
   }
 
   /**
-   * キャッシュの書き込み
+   * キャッシュの書き込み（オフライン時専用強化版）
    */
   writeCache(group, day, timeslot, data) {
     try {
       const key = `${STORAGE_KEYS.CACHE_DATA}_${group}-${day}-${timeslot}`;
+      const isOffline = !navigator.onLine;
+      
+      // オフライン時の座席データ保存強化
+      let enhancedData = { ...data };
+      if (isOffline && data.seatMap) {
+        console.log('[OfflineSync] オフライン時の座席キャッシュ保存:', {
+          group, day, timeslot,
+          seatCount: Object.keys(data.seatMap).length
+        });
+        
+        // 座席データの完全性を保証
+        const validatedSeatMap = {};
+        Object.entries(data.seatMap).forEach(([seatId, seatData]) => {
+          if (seatData && typeof seatData === 'object') {
+            validatedSeatMap[seatId] = {
+              id: seatId,
+              status: seatData.status || 'available',
+              name: seatData.name || null,
+              offlineModified: isOffline, // オフライン変更フラグ
+              ...seatData
+            };
+          }
+        });
+        
+        enhancedData.seatMap = validatedSeatMap;
+        enhancedData.offlineCache = true; // オフラインキャッシュフラグ
+      }
+      
       const cacheData = {
-        ...data,
+        ...enhancedData,
         cachedAt: Date.now(),
-        version: Date.now().toString() // バージョン管理
+        version: Date.now().toString(), // バージョン管理
+        offlineSaved: isOffline // オフライン保存フラグ
       };
+      
       localStorage.setItem(key, JSON.stringify(cacheData));
+      
+      if (isOffline) {
+        console.log('[OfflineSync] オフライン座席キャッシュ保存完了:', {
+          group, day, timeslot,
+          seatCount: Object.keys(enhancedData.seatMap || {}).length
+        });
+      }
     } catch (error) {
       console.error('[OfflineSync] キャッシュ書き込みエラー:', error);
     }

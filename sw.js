@@ -1,13 +1,18 @@
 // sw.js - 静的資産キャッシュとオフライン表示の強化版
-const CACHE_NAME = 'tickets-optimized-v1';
-const ASSETS = [
+const CACHE_NAME = 'tickets-optimized-v2';
+const CRITICAL_ASSETS = [
 	'./',
 	'./index.html',
+	'./manifest.json',
+	'./styles.css',
+	'./config.js',
+	'./optimized-loader.js'
+];
+
+const SECONDARY_ASSETS = [
 	'./timeslot.html',
 	'./seats.html',
 	'./walkin.html',
-	'./manifest.json',
-	'./styles.css',
 	'./sidebar.css',
 	'./seats.css',
 	'./walkin.css',
@@ -16,41 +21,44 @@ const ASSETS = [
 	'./seats-main.js',
 	'./walkin-main.js',
 	'./sidebar.js',
-	'./api.js',
-	'./config.js',
 	'./timeslot-schedules.js',
 	'./system-lock.js',
 	'./offline-sync-v2.js',
 	'./offline-sync-v2.css',
 	'./pwa-install.js',
-	'./optimized-loader.js',
 	'./api-cache.js',
 	'./optimized-api.js',
 	'./ui-optimizer.js',
-	'./sw.js'
+	'./performance-monitor.js'
 ];
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches.open(CACHE_NAME)
 			.then(async cache => {
-				// iOS対応: バッチサイズを制限してメモリ使用量を抑制
-				const batchSize = 5;
-				for (let i = 0; i < ASSETS.length; i += batchSize) {
-					const batch = ASSETS.slice(i, i + batchSize);
-					try { 
-						await cache.addAll(batch); 
-					} catch (e) {
-						console.warn('Cache batch failed:', e);
-					}
-				}
-				// プリフェッチ用URLもバッチ処理
-				const prefetchUrls = ['./index.html?prefetch=1','./seats.html?prefetch=1','./timeslot.html?prefetch=1','./walkin.html?prefetch=1'];
+				// クリティカルアセットを優先的にキャッシュ
 				try { 
-					await cache.addAll(prefetchUrls); 
+					await cache.addAll(CRITICAL_ASSETS); 
+					console.log('Critical assets cached successfully');
 				} catch (e) {
-					console.warn('Prefetch cache failed:', e);
+					console.warn('Critical cache failed:', e);
 				}
+				
+				// セカンダリアセットはバックグラウンドでキャッシュ
+				setTimeout(async () => {
+					const batchSize = 3; // iOS対応: バッチサイズをさらに削減
+					for (let i = 0; i < SECONDARY_ASSETS.length; i += batchSize) {
+						const batch = SECONDARY_ASSETS.slice(i, i + batchSize);
+						try { 
+							await cache.addAll(batch); 
+							console.log(`Secondary batch ${Math.floor(i/batchSize) + 1} cached`);
+						} catch (e) {
+							console.warn('Secondary cache batch failed:', e);
+						}
+						// バッチ間で少し待機（メモリ圧迫を防ぐ）
+						await new Promise(resolve => setTimeout(resolve, 100));
+					}
+				}, 1000);
 			})
 			.catch(() => {})
 	);

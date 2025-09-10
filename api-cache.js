@@ -4,12 +4,12 @@ class APICache {
     this.cache = new Map();
     this.pendingRequests = new Map();
     this.cacheConfig = {
-      seatData: { ttl: 30000, maxSize: 100 }, // 30秒、最大100件
+      seatData: { ttl: 15000, maxSize: 50 }, // 15秒、最大50件（API通信最優先）
       timeslotData: { ttl: 300000, maxSize: 50 }, // 5分、最大50件
-      systemLock: { ttl: 10000, maxSize: 10 }, // 10秒、最大10件
-      default: { ttl: 60000, maxSize: 200 } // 1分、最大200件
+      systemLock: { ttl: 5000, maxSize: 10 }, // 5秒、最大10件（API通信最優先）
+      default: { ttl: 30000, maxSize: 100 } // 30秒、最大100件（API通信最優先）
     };
-    this.cleanupInterval = setInterval(() => this.cleanup(), 60000); // 1分ごとにクリーンアップ
+    this.cleanupInterval = setInterval(() => this.cleanup(), 30000); // 30秒ごとにクリーンアップ（API通信最優先）
   }
 
   generateCacheKey(functionName, params = []) {

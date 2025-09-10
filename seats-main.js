@@ -108,16 +108,41 @@ const apiEndpoint = apiUrlManager.getCurrentUrl();
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       const cached = (window.readCache ? window.readCache(GROUP, DAY, TIMESLOT) : null);
       if (cached && cached.seatMap) {
-        console.log('[Offline] キャッシュから座席データを復元');
-        drawSeatMap(cached.seatMap);
-        updateLastUpdateTime();
-        const toggleCheckbox = document.getElementById('auto-refresh-toggle-checkbox');
-        if (toggleCheckbox) {
-          toggleCheckbox.checked = isAutoRefreshEnabled;
-          toggleCheckbox.addEventListener('change', toggleAutoRefresh);
+        console.log('[Offline] キャッシュから座席データを復元:', {
+          seatCount: Object.keys(cached.seatMap).length,
+          cacheAge: cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 1000) + '秒前' : '不明'
+        });
+        
+        // オフライン時の座席データ復元強化
+        const restoredSeatMap = {};
+        Object.entries(cached.seatMap).forEach(([seatId, seatData]) => {
+          if (seatData && typeof seatData === 'object') {
+            restoredSeatMap[seatId] = {
+              id: seatId,
+              status: seatData.status || 'available',
+              name: seatData.name || null,
+              offlineRestored: true, // オフライン復元フラグ
+              ...seatData
+            };
+          }
+        });
+        
+        if (Object.keys(restoredSeatMap).length > 0) {
+          console.log('[Offline] 座席データ復元完了:', Object.keys(restoredSeatMap).length + '席');
+          drawSeatMap(restoredSeatMap);
+          updateLastUpdateTime();
+          
+          // オフライン復元通知を表示
+          showOfflineRestoreNotification(Object.keys(restoredSeatMap).length);
+          
+          const toggleCheckbox = document.getElementById('auto-refresh-toggle-checkbox');
+          if (toggleCheckbox) {
+            toggleCheckbox.checked = isAutoRefreshEnabled;
+            toggleCheckbox.addEventListener('change', toggleAutoRefresh);
+          }
+          startAutoRefresh();
+          return;
         }
-        startAutoRefresh();
-        return;
       }
       // キャッシュがない場合のみ以降の処理に進む
     }
@@ -311,8 +336,29 @@ function startAutoRefresh() {
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
           const cached = (window.readCache ? window.readCache(GROUP, DAY, TIMESLOT) : null);
           if (cached && cached.seatMap) {
-            updateSeatMapWithMinimalData(cached.seatMap);
-            updateLastUpdateTime();
+            console.log('[Offline] 自動更新でキャッシュから座席データを復元:', {
+              seatCount: Object.keys(cached.seatMap).length,
+              cacheAge: cached.cachedAt ? Math.round((Date.now() - cached.cachedAt) / 1000) + '秒前' : '不明'
+            });
+            
+            // オフライン時の座席データ復元強化
+            const restoredSeatMap = {};
+            Object.entries(cached.seatMap).forEach(([seatId, seatData]) => {
+              if (seatData && typeof seatData === 'object') {
+                restoredSeatMap[seatId] = {
+                  id: seatId,
+                  status: seatData.status || 'available',
+                  name: seatData.name || null,
+                  offlineRestored: true, // オフライン復元フラグ
+                  ...seatData
+                };
+              }
+            });
+            
+            if (Object.keys(restoredSeatMap).length > 0) {
+              updateSeatMapWithMinimalData(restoredSeatMap);
+              updateLastUpdateTime();
+            }
           }
           return;
         }
@@ -1428,6 +1474,69 @@ function showErrorNotification(message) {
       notification.remove();
     }
   }, 5000);
+}
+
+// オフライン復元通知を表示する関数
+function showOfflineRestoreNotification(seatCount) {
+  const notification = document.createElement('div');
+  notification.className = 'offline-restore-notification';
+  notification.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 16px; color: #fff;">●</span>
+      <div>
+        <div style="font-weight: 600; margin-bottom: 2px;">オフライン復元完了</div>
+        <div style="font-size: 12px; opacity: 0.9;">${seatCount}席のデータをキャッシュから復元しました</div>
+      </div>
+    </div>
+  `;
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 10000;
+    font-size: 14px;
+    max-width: 320px;
+    word-wrap: break-word;
+    animation: slideInLeft 0.3s ease-out;
+  `;
+
+  // アニメーション用のCSS
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideInLeft {
+      from {
+        transform: translateX(-100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+
+  document.body.appendChild(notification);
+
+  // 4秒後に自動削除
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.style.animation = 'slideInLeft 0.3s ease-out reverse';
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.parentNode.removeChild(notification);
+        }
+        if (style.parentNode) {
+          style.parentNode.removeChild(style);
+        }
+      }, 300);
+    }
+  }, 4000);
 }
 
 // 座席データを再取得してUIを復元する関数
