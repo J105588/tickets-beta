@@ -17,14 +17,18 @@ import * as timeSlotConfig from './timeslot-schedules.js';
       await window.systemLockReady;
     }
   } catch (_) {}
+  // DEMOモードでクエリが無い最初のURLなら demo=1 を付与
+  try { DemoMode.ensureDemoParamInLocation(); } catch (_) {}
+  // DEMOアクティブ時に通知
+  try { if (DemoMode.isActive()) DemoMode.showNotificationIfNeeded(); } catch (_) {}
 
   const urlParams = new URLSearchParams(window.location.search);
-  let group = urlParams.get('group');
-  // DEMOモード時は見本演劇を強制
-  group = DemoMode.enforceGroup(group || '');
-  // ガード：見本演劇以外が指定された場合は拒否してリダイレクト
-  const ok = DemoMode.guardGroupAccessOrRedirect(group, `timeslot.html?group=${encodeURIComponent(DemoMode.demoGroup)}`);
+  const requestedGroup = urlParams.get('group') || '';
+  // ガード：DEMOモード時に見本演劇以外が指定された場合は拒否
+  const ok = DemoMode.guardGroupAccessOrRedirect(requestedGroup, `timeslot.html?group=${encodeURIComponent(DemoMode.demoGroup)}`);
   if (!ok) return;
+  // DEMOモード時は見本演劇を強制
+  const group = DemoMode.enforceGroup(requestedGroup);
 
   // 組名をページのタイトル部分に表示
   document.getElementById('group-name').textContent = isNaN(parseInt(group)) ? group : group + '組';
@@ -67,6 +71,11 @@ function selectTimeslot(day, timeslot) {
   // 管理者モードなら、移動先のURLにもadmin=trueパラメータを付与
   if (isAdmin) {
     additionalParams = '&admin=true';
+  }
+
+  // DEMOモード中は demo=1 を付与（初回起動後の遷移で保持）
+  if (DemoMode.isActive()) {
+    additionalParams += '&demo=1';
   }
 
   // walkinモードの場合はwalkin.htmlにリダイレクト

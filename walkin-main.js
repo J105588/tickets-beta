@@ -8,10 +8,11 @@ import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, close
 
 // URLパラメータ取得
 const urlParams = new URLSearchParams(window.location.search);
-let GROUP = urlParams.get('group');
-GROUP = DemoMode.enforceGroup(GROUP || '');
-// ガード：見本演劇以外は拒否
-DemoMode.guardGroupAccessOrRedirect(GROUP, `walkin.html?group=${encodeURIComponent(DemoMode.demoGroup)}&day=${urlParams.get('day')||'1'}&timeslot=${urlParams.get('timeslot')||'A'}`);
+const requestedGroup = urlParams.get('group') || '';
+// ガード：DEMOモード時に見本演劇以外は拒否
+DemoMode.guardGroupAccessOrRedirect(requestedGroup, `walkin.html?group=${encodeURIComponent(DemoMode.demoGroup)}&day=${urlParams.get('day')||'1'}&timeslot=${urlParams.get('timeslot')||'A'}`);
+// DEMOモード時は見本演劇を強制
+let GROUP = DemoMode.enforceGroup(requestedGroup);
 const DAY = urlParams.get('day');
 const TIMESLOT = urlParams.get('timeslot');
 
@@ -27,6 +28,8 @@ window.onload = async () => {
   
   // サイドバー読み込み
   loadSidebar();
+  // DEMOアクティブ時に通知
+  try { if (DemoMode.isActive()) DemoMode.showNotificationIfNeeded(); } catch (_) {}
   
   // 表示情報設定
   const groupName = isNaN(parseInt(GROUP)) ? GROUP : GROUP + '組';

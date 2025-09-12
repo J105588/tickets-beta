@@ -8,10 +8,11 @@ import uiOptimizer from './ui-optimizer.js';
  * 座席選択画面のメイン処理
  */
 const urlParams = new URLSearchParams(window.location.search);
-let GROUP = urlParams.get('group') || '見本演劇';
-GROUP = DemoMode.enforceGroup(GROUP);
+const requestedGroup = urlParams.get('group') || '';
 // DEMOモードで許可外の場合ブロックしてリダイレクト
-DemoMode.guardGroupAccessOrRedirect(GROUP, `seats.html?group=${encodeURIComponent(DemoMode.demoGroup)}&day=${urlParams.get('day')||'1'}&timeslot=${urlParams.get('timeslot')||'A'}`);
+DemoMode.guardGroupAccessOrRedirect(requestedGroup, `seats.html?group=${encodeURIComponent(DemoMode.demoGroup)}&day=${urlParams.get('day')||'1'}&timeslot=${urlParams.get('timeslot')||'A'}`);
+// DEMOモード時は見本演劇を強制
+let GROUP = DemoMode.enforceGroup(requestedGroup || '見本演劇');
 const DAY = urlParams.get('day') || '1';
 const TIMESLOT = urlParams.get('timeslot') || 'A';
 const IS_ADMIN = urlParams.get('admin') === 'true';
@@ -33,6 +34,9 @@ const apiEndpoint = apiUrlManager.getCurrentUrl();
   window.onload = async () => {
     loadSidebar();
     
+    // DEMOアクティブ時に通知
+    try { if (DemoMode.isActive()) DemoMode.showNotificationIfNeeded(); } catch (_) {}
+
     // オフライン状態インジケーターの初期化
     initializeOfflineIndicator();
 

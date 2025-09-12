@@ -2948,6 +2948,43 @@ class OfflineOperationManager {
       console.warn('[OfflineSync] メモリクリーンアップエラー:', error);
     }
   }
+
+  // 追加: ローカルストレージの座席キャッシュを一括読み取り
+  readCacheData() {
+    try {
+      const all = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(STORAGE_KEYS.CACHE_DATA + '_')) {
+          try {
+            const raw = localStorage.getItem(key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw);
+            all[key] = parsed;
+          } catch (_) {}
+        }
+      }
+      return all;
+    } catch (e) {
+      console.warn('[OfflineSync] readCacheData 失敗:', e);
+      return {};
+    }
+  }
+
+  // 追加: 座席キャッシュの一括書き戻し
+  writeCacheData(cacheData) {
+    try {
+      Object.keys(cacheData || {}).forEach((key) => {
+        if (key && key.startsWith(STORAGE_KEYS.CACHE_DATA + '_')) {
+          try {
+            localStorage.setItem(key, JSON.stringify(cacheData[key]));
+          } catch (_) {}
+        }
+      });
+    } catch (e) {
+      console.warn('[OfflineSync] writeCacheData 失敗:', e);
+    }
+  }
 }
 
 // グローバルインスタンスの作成

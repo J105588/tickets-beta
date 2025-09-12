@@ -1,4 +1,5 @@
 import { loadSidebar, toggleSidebar, showModeChangeModal } from './sidebar.js';    
+import { DemoMode } from './config.js';
 
 (async () => {
   try {
@@ -6,6 +7,8 @@ import { loadSidebar, toggleSidebar, showModeChangeModal } from './sidebar.js';
       await window.systemLockReady;
     }
   } catch (_) {}
+  // DEMOモードでクエリが無い最初のURLなら demo=1 を付与
+  try { DemoMode.ensureDemoParamInLocation(); } catch (_) {}
   loadSidebar();
 
   // グローバルスコープに関数を登録

@@ -120,10 +120,15 @@ class DemoModeManager {
         disable: () => this.disable(),
         enable: () => this.enable(),
         isActive: () => this.isActive(),
-        demoGroup: this.demoGroup
+        demoGroup: this.demoGroup,
+        logStatus: () => this.logStatus(),
+        notify: () => this.showNotificationIfNeeded(true)
       };
       debugLog('[DemoMode] console command ready: DemoMode.disable()');
     } catch (_) {}
+
+    // 状態をログ出力
+    this.logStatus();
   }
 
   _initFromUrl() {
@@ -164,6 +169,68 @@ class DemoModeManager {
       window.location.href = redirectTo;
     }
     return false;
+  }
+
+  // DEMOモードが有効で、かつURLにクエリが無い場合は demo=1 を付与
+  ensureDemoParamInLocation() {
+    try {
+      if (!this.isActive()) return;
+      const { href, origin, pathname, search, hash } = window.location;
+      if (search && /(?:^|[?&])demo=/.test(search)) return; // 既にある
+      if (!search || search === '') {
+        const next = `${origin}${pathname}?demo=1${hash || ''}`;
+        debugLog('[DemoMode] Append demo=1 to URL', { from: href, to: next });
+        window.history.replaceState(null, '', next);
+      }
+    } catch (_) {}
+  }
+
+  // 状態ログを出力
+  logStatus() {
+    try {
+      if (this.isActive()) {
+        console.log('[DemoMode] Active - group limited to', this.demoGroup);
+      } else {
+        console.log('[DemoMode] Inactive');
+      }
+    } catch (_) {}
+  }
+
+  // DEMOモード通知モジュール（オーバーレイ＋モーダル）。外側タップで閉じる。
+  showNotificationIfNeeded(force = false) {
+    try {
+      if (!this.isActive() && !force) return;
+      const notifiedKey = 'DEMO_MODE_NOTIFIED';
+      if (!force && sessionStorage.getItem(notifiedKey) === 'true') return;
+
+      const overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+      const modal = document.createElement('div');
+      modal.style.cssText = 'background:#fff;border-radius:12px;max-width:480px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,.25);overflow:hidden;';
+      const header = document.createElement('div');
+      header.style.cssText = 'background:#6f42c1;color:#fff;padding:14px 16px;font-weight:600;';
+      header.textContent = 'DEMOモード';
+      const body = document.createElement('div');
+      body.style.cssText = 'padding:16px;color:#333;line-height:1.6;';
+      body.innerHTML = `現在「<b>${this.demoGroup}</b>」のみ操作可能です。<br>モードや予約、チェックイン、当日券発行の操作は見本データにのみ反映されます。`;
+      const footer = document.createElement('div');
+      footer.style.cssText = 'padding:12px 16px;display:flex;gap:8px;justify-content:flex-end;background:#f8f9fa;';
+      const ok = document.createElement('button');
+      ok.textContent = 'OK';
+      ok.style.cssText = 'background:#6f42c1;color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer';
+      ok.addEventListener('click', () => overlay.remove());
+      footer.appendChild(ok);
+      modal.appendChild(header);
+      modal.appendChild(body);
+      modal.appendChild(footer);
+      overlay.appendChild(modal);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+      document.body.appendChild(overlay);
+      sessionStorage.setItem(notifiedKey, 'true');
+    } catch (_) {
+      // フォールバック
+      try { alert('DEMOモード：現在「' + this.demoGroup + '」のみ操作可能です'); } catch (__) {}
+    }
   }
 }
 
