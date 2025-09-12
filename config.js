@@ -141,7 +141,22 @@ class DemoModeManager {
       } else if (demo && ['0', 'false', 'off', 'no', 'disable'].includes(String(demo).toLowerCase())) {
         localStorage.removeItem(this.storageKey);
         debugLog('[DemoMode] Disabled via URL parameter');
+        // DEMO解除時はURLからパラメーターを削除
+        this._removeDemoParamFromUrl();
       }
+    } catch (_) {}
+  }
+
+  // URLからdemoパラメーターを削除
+  _removeDemoParamFromUrl() {
+    try {
+      const { origin, pathname, search, hash } = window.location;
+      const params = new URLSearchParams(search);
+      params.delete('demo');
+      const newSearch = params.toString();
+      const newUrl = `${origin}${pathname}${newSearch ? '?' + newSearch : ''}${hash || ''}`;
+      window.history.replaceState(null, '', newUrl);
+      debugLog('[DemoMode] Removed demo parameter from URL');
     } catch (_) {}
   }
 
