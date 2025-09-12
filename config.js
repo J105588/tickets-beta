@@ -138,6 +138,9 @@ class DemoModeManager {
       if (demo && ['1', 'true', 'on', 'yes'].includes(String(demo).toLowerCase())) {
         localStorage.setItem(this.storageKey, 'true');
         debugLog('[DemoMode] Activated via URL parameter');
+      } else if (demo && ['0', 'false', 'off', 'no', 'disable'].includes(String(demo).toLowerCase())) {
+        localStorage.removeItem(this.storageKey);
+        debugLog('[DemoMode] Disabled via URL parameter');
       }
     } catch (_) {}
   }

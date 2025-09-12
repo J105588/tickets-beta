@@ -503,7 +503,21 @@ DEMOモードは、指定したURLパラメータからのみ起動でき、UI�
 seats.html?group=見本演劇&day=1&timeslot=A&demo=1
 ```
 
-### 解除方法（コンソール）
+### 解除方法
+
+#### URLパラメーターでの解除
+任意のページのURLに `demo=0` を付与してアクセスします。
+
+例:
+```
+index.html?demo=0
+seats.html?group=見本演劇&day=1&timeslot=A&demo=0
+```
+
+対応するパラメーター値:
+- `demo=0`, `demo=false`, `demo=off`, `demo=no`, `demo=disable`
+
+#### コンソールでの解除
 ブラウザの開発者コンソールで以下を実行します。
 
 ```
