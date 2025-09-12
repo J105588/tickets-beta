@@ -11,6 +11,9 @@ import { DemoMode } from './config.js';
   try { DemoMode.ensureDemoParamInLocation(); } catch (_) {}
   loadSidebar();
 
+  // DEMOアクティブ時はindexで毎回通知を表示（セッション抑制を無効化）
+  try { if (DemoMode.isActive()) DemoMode.showNotificationIfNeeded(true); } catch (_) {}
+
   // グローバルスコープに関数を登録
   window.toggleSidebar = toggleSidebar;
   window.showModeChangeModal = showModeChangeModal;
