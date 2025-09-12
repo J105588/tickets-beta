@@ -3,11 +3,15 @@
  */
 
 import GasAPI from './api.js'; // GasAPIをインポート
+import { DemoMode } from './config.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
 
 // URLパラメータ取得
 const urlParams = new URLSearchParams(window.location.search);
-const GROUP = urlParams.get('group');
+let GROUP = urlParams.get('group');
+GROUP = DemoMode.enforceGroup(GROUP || '');
+// ガード：見本演劇以外は拒否
+DemoMode.guardGroupAccessOrRedirect(GROUP, `walkin.html?group=${encodeURIComponent(DemoMode.demoGroup)}&day=${urlParams.get('day')||'1'}&timeslot=${urlParams.get('timeslot')||'A'}`);
 const DAY = urlParams.get('day');
 const TIMESLOT = urlParams.get('timeslot');
 

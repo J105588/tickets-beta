@@ -108,6 +108,67 @@ const apiUrlManager = new APIUrlManager();
 const BACKGROUND_SYNC_URL = "https://script.google.com/macros/s/AKfycbzOVVyo8K5-bCZkzD_N2EXFLC7AHQSgKljJo1UXzVB99vacoOsHDme4NIn_emoes-t3/exec"; // 例: "https://script.google.com/macros/s/OFFLINE_PROJECT_ID/exec"
 const DEBUG_MODE = true;
 
+// DEMOモード管理（URLパラメータで有効化、UIでは非表示）
+class DemoModeManager {
+  constructor() {
+    this.storageKey = 'DEMO_MODE_ACTIVE';
+    this.demoGroup = '見本演劇';
+    this._initFromUrl();
+    // コンソール操作用に公開
+    try {
+      window.DemoMode = {
+        disable: () => this.disable(),
+        enable: () => this.enable(),
+        isActive: () => this.isActive(),
+        demoGroup: this.demoGroup
+      };
+      debugLog('[DemoMode] console command ready: DemoMode.disable()');
+    } catch (_) {}
+  }
+
+  _initFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const demo = params.get('demo');
+      if (demo && ['1', 'true', 'on', 'yes'].includes(String(demo).toLowerCase())) {
+        localStorage.setItem(this.storageKey, 'true');
+        debugLog('[DemoMode] Activated via URL parameter');
+      }
+    } catch (_) {}
+  }
+
+  isActive() {
+    try { return localStorage.getItem(this.storageKey) === 'true'; } catch (_) { return false; }
+  }
+
+  enable() {
+    try { localStorage.setItem(this.storageKey, 'true'); } catch (_) {}
+  }
+
+  disable() {
+    try { localStorage.removeItem(this.storageKey); debugLog('[DemoMode] Disabled'); } catch (_) {}
+  }
+
+  // DEMOモード時は強制的に見本演劇にする
+  enforceGroup(group) {
+    if (this.isActive()) return this.demoGroup;
+    return group;
+  }
+
+  // DEMOモード時に許可外のグループアクセスをブロック（必要ならリダイレクト）
+  guardGroupAccessOrRedirect(currentGroup, redirectTo = null) {
+    if (!this.isActive()) return true;
+    if (currentGroup === this.demoGroup) return true;
+    alert('権限がありません：DEMOモードでは「見本演劇」のみアクセス可能です');
+    if (redirectTo) {
+      window.location.href = redirectTo;
+    }
+    return false;
+  }
+}
+
+const DemoMode = new DemoModeManager();
+
 function debugLog(message, obj = null) {
   if (DEBUG_MODE) {
     console.log(message, obj || '');
@@ -115,4 +176,4 @@ function debugLog(message, obj = null) {
 }
 
 // 個別にエクスポート
-export { GAS_API_URLS, BACKGROUND_SYNC_URL, DEBUG_MODE, debugLog, apiUrlManager };
+export { GAS_API_URLS, BACKGROUND_SYNC_URL, DEBUG_MODE, debugLog, apiUrlManager, DemoMode };

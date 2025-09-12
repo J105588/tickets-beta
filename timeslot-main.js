@@ -2,6 +2,7 @@
 
 // 必要なモジュールをインポートします
 import GasAPI from './api.js';
+import { DemoMode } from './config.js';
 import { loadSidebar, toggleSidebar } from './sidebar.js';
 // timeslot-schedules.jsから getAllTimeslotsForGroup を提供すると仮定します。
 // もしファイル名や関数名が違う場合は、ここを修正してください。
@@ -18,7 +19,12 @@ import * as timeSlotConfig from './timeslot-schedules.js';
   } catch (_) {}
 
   const urlParams = new URLSearchParams(window.location.search);
-  const group = urlParams.get('group');
+  let group = urlParams.get('group');
+  // DEMOモード時は見本演劇を強制
+  group = DemoMode.enforceGroup(group || '');
+  // ガード：見本演劇以外が指定された場合は拒否してリダイレクト
+  const ok = DemoMode.guardGroupAccessOrRedirect(group, `timeslot.html?group=${encodeURIComponent(DemoMode.demoGroup)}`);
+  if (!ok) return;
 
   // 組名をページのタイトル部分に表示
   document.getElementById('group-name').textContent = isNaN(parseInt(group)) ? group : group + '組';
@@ -48,7 +54,8 @@ import * as timeSlotConfig from './timeslot-schedules.js';
 function selectTimeslot(day, timeslot) {
   // URLから管理者モードかどうかを判断
   const urlParams = new URLSearchParams(window.location.search);
-  const group = urlParams.get('group');
+  let group = urlParams.get('group');
+  group = DemoMode.enforceGroup(group || '');
   const isAdmin = urlParams.get('admin') === 'true';
   
   // 現在のモードをLocalStorageから取得

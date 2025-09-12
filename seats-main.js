@@ -1,14 +1,17 @@
 // seats-main.js - 最適化版
 import OptimizedGasAPI from './optimized-api.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
-import { apiUrlManager, DEBUG_MODE, debugLog } from './config.js';
+import { apiUrlManager, DEBUG_MODE, debugLog, DemoMode } from './config.js';
 import uiOptimizer from './ui-optimizer.js';
 
 /**
  * 座席選択画面のメイン処理
  */
 const urlParams = new URLSearchParams(window.location.search);
-const GROUP = urlParams.get('group') || '見本演劇';
+let GROUP = urlParams.get('group') || '見本演劇';
+GROUP = DemoMode.enforceGroup(GROUP);
+// DEMOモードで許可外の場合ブロックしてリダイレクト
+DemoMode.guardGroupAccessOrRedirect(GROUP, `seats.html?group=${encodeURIComponent(DemoMode.demoGroup)}&day=${urlParams.get('day')||'1'}&timeslot=${urlParams.get('timeslot')||'A'}`);
 const DAY = urlParams.get('day') || '1';
 const TIMESLOT = urlParams.get('timeslot') || 'A';
 const IS_ADMIN = urlParams.get('admin') === 'true';
