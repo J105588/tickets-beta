@@ -37,7 +37,7 @@ class SystemLock {
           gate.style.alignItems = 'center';
           gate.style.justifyContent = 'center';
           gate.style.pointerEvents = 'all';
-          gate.innerHTML = '<div style="background:#fff;padding:24px;border-radius:8px;max-width:360px;width:90%;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.3)"><h3 style="margin:0 0 12px 0;">システムはロックされています</h3><p style="margin:0 0 16px 0;color:#555;font-size:14px;">アクセス権限がありません。</p></div>';
+          gate.innerHTML = '<div style="background:#fff;padding:24px;border-radius:8px;max-width:360px;width:90%;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.3)"><h3 style="margin:0 0 12px 0;">システムはロックされています</h3><p style="margin:0 0 16px 0;color:#555;font-size:14px;">アクセス権限がありません</p></div>';
           document.body.appendChild(gate);
         }
       };
