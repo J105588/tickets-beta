@@ -115,7 +115,7 @@ async function applyModeChange() {
         // 通常モードに戻る場合はパスワード検証をスキップ
         if (selectedMode === 'normal') {
             // 監査ログ：通常モードへの変更
-            auditLogger.log('mode_change_to_normal', {
+            auditManager.log('mode_change_to_normal', {
                 fromMode: localStorage.getItem('currentMode') || 'normal',
                 toMode: 'normal',
                 beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
@@ -141,7 +141,7 @@ async function applyModeChange() {
 
         if (result.success) {
             // 監査ログ：モード変更成功
-            auditLogger.log('mode_change_success', {
+            auditManager.log('mode_change_success', {
                 fromMode: localStorage.getItem('currentMode') || 'normal',
                 toMode: selectedMode,
                 beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },

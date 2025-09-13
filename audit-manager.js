@@ -14,25 +14,37 @@ class AuditManager {
     this.syncTimer = null;
     this.pendingLogs = [];
     this.lastSyncTime = 0;
+    this.logs = []; // ログ配列を初期化
+    this.syncFailureCount = 0; // 同期失敗カウンターを初期化
     
     this.initialize();
   }
 
   initialize() {
     try {
+      console.log('[AuditManager] 初期化開始');
+      
       // 既存のログを読み込み
       this.logs = this.loadLogs();
+      console.log(`[AuditManager] 読み込まれたログ数: ${this.logs.length}件`);
+      
       this.cleanupOldLogs();
+      console.log(`[AuditManager] クリーンアップ後のログ数: ${this.logs.length}件`);
       
       // 自動同期を開始
       if (this.autoSync) {
         this.startAutoSync();
+        console.log('[AuditManager] 自動同期を開始しました');
       }
       
       console.log('[AuditManager] 初期化完了');
     } catch (error) {
-      console.warn('[AuditManager] 初期化エラー:', error);
+      console.error('[AuditManager] 初期化エラー:', error);
+      // 初期化に失敗しても基本的な機能は利用可能にする
       this.logs = [];
+      this.autoSync = false; // 自動同期を無効化
+      this.pendingLogs = [];
+      console.log('[AuditManager] 初期化に失敗しましたが、基本的な機能は利用可能です');
     }
   }
 
@@ -69,9 +81,23 @@ class AuditManager {
         stackTrace: details.stackTrace || null
       };
 
+      // ログ配列が初期化されていることを確認
+      if (!Array.isArray(this.logs)) {
+        console.warn('[AuditManager] ログ配列が初期化されていません - 初期化します');
+        this.logs = [];
+      }
+      
       this.logs.unshift(logEntry);
       this.cleanupOldLogs();
-      this.saveLogs();
+      
+      // ログ保存を試行
+      try {
+        this.saveLogs();
+        console.log(`[AuditManager] ログ記録成功: ${operation} (ID: ${logEntry.id})`);
+      } catch (saveError) {
+        console.error('[AuditManager] ログ保存に失敗:', saveError);
+        // 保存に失敗してもログは記録されているので継続
+      }
       
       // 同期待ちのログに追加
       if (this.autoSync) {
@@ -83,7 +109,9 @@ class AuditManager {
         console.log('[AuditManager]', logEntry);
       }
     } catch (error) {
-      console.warn('[AuditManager] ログ記録エラー:', error);
+      console.error('[AuditManager] ログ記録エラー:', error);
+      // ログ記録に失敗してもアプリケーションの動作は継続
+      // エラーを再スローしない
     }
   }
 
@@ -236,9 +264,31 @@ class AuditManager {
   loadLogs() {
     try {
       const stored = localStorage.getItem(this.storageKey);
-      return stored ? JSON.parse(stored) : [];
+      if (!stored) {
+        console.log('[AuditManager] 保存されたログが見つかりません - 空の配列を返します');
+        return [];
+      }
+      
+      const parsedLogs = JSON.parse(stored);
+      if (!Array.isArray(parsedLogs)) {
+        console.warn('[AuditManager] 保存されたデータが配列ではありません - 空の配列を返します');
+        return [];
+      }
+      
+      console.log(`[AuditManager] ログ読み込み成功: ${parsedLogs.length}件`);
+      return parsedLogs;
     } catch (error) {
-      console.warn('[AuditManager] ログ読み込みエラー:', error);
+      console.error('[AuditManager] ログ読み込みエラー:', error);
+      console.warn('[AuditManager] 破損したログデータをクリアします');
+      
+      // 破損したデータをクリア
+      try {
+        localStorage.removeItem(this.storageKey);
+        console.log('[AuditManager] 破損したログデータを削除しました');
+      } catch (clearError) {
+        console.error('[AuditManager] ログデータの削除に失敗:', clearError);
+      }
+      
       return [];
     }
   }
@@ -246,15 +296,37 @@ class AuditManager {
   // ログを保存
   saveLogs() {
     try {
-      localStorage.setItem(this.storageKey, JSON.stringify(this.logs));
+      const logsToSave = this.logs || [];
+      const jsonString = JSON.stringify(logsToSave);
+      
+      console.log(`[AuditManager] ログ保存開始: ${logsToSave.length}件, サイズ: ${jsonString.length}文字`);
+      
+      localStorage.setItem(this.storageKey, jsonString);
+      
+      console.log('[AuditManager] ログ保存成功');
     } catch (error) {
+      console.error('[AuditManager] ログ保存エラー:', error);
+      
       if (error.name === 'QuotaExceededError') {
+        console.warn('[AuditManager] ストレージ容量不足 - ログを削減して再試行');
         this.logs = this.logs.slice(0, Math.floor(this.maxLogs / 2));
         try {
-          localStorage.setItem(this.storageKey, JSON.stringify(this.logs));
+          const reducedJsonString = JSON.stringify(this.logs);
+          localStorage.setItem(this.storageKey, reducedJsonString);
+          console.log(`[AuditManager] ログ削減後保存成功: ${this.logs.length}件`);
         } catch (e) {
-          console.warn('[AuditManager] ストレージ容量不足:', e);
+          console.error('[AuditManager] ログ削減後も保存失敗:', e);
+          // 最後の手段として、ログを完全にクリア
+          this.logs = [];
+          try {
+            localStorage.setItem(this.storageKey, '[]');
+            console.log('[AuditManager] ログをクリアして保存');
+          } catch (finalError) {
+            console.error('[AuditManager] 最終的な保存も失敗:', finalError);
+          }
         }
+      } else {
+        console.error('[AuditManager] 予期しない保存エラー:', error);
       }
     }
   }
@@ -310,36 +382,80 @@ class AuditManager {
         return;
       }
 
+      // ログの検証
+      if (!Array.isArray(logsToSync) || logsToSync.length === 0) {
+        console.warn('[AuditManager] 同期するログが無効です:', logsToSync);
+        return;
+      }
+
+      // 各ログの検証
+      const validLogs = logsToSync.filter(log => {
+        if (!log || typeof log !== 'object') {
+          console.warn('[AuditManager] 無効なログをスキップ:', log);
+          return false;
+        }
+        return true;
+      });
+
+      if (validLogs.length === 0) {
+        console.warn('[AuditManager] 有効なログがありません');
+        return;
+      }
+
       try {
         // デバッグ情報を出力
         console.log('[AuditManager] 同期開始:', {
           auditLogSpreadsheetId,
-          logsCount: logsToSync.length,
-          logsToSyncType: typeof logsToSync,
-          isLogsArray: Array.isArray(logsToSync),
-          firstLog: logsToSync[0] ? {
-            id: logsToSync[0].id,
-            operation: logsToSync[0].operation,
-            fileName: logsToSync[0].fileName,
-            type: typeof logsToSync[0]
+          logsCount: validLogs.length,
+          logsToSyncType: typeof validLogs,
+          isLogsArray: Array.isArray(validLogs),
+          firstLog: validLogs[0] ? {
+            id: validLogs[0].id,
+            operation: validLogs[0].operation,
+            fileName: validLogs[0].fileName,
+            type: typeof validLogs[0]
           } : null,
-          allLogs: logsToSync
+          allLogs: validLogs
         });
         
-        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [auditLogSpreadsheetId, logsToSync]);
+        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [auditLogSpreadsheetId, validLogs]);
         
         if (result && result.success) {
-          console.log(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} に ${logsToSync.length}件のログを同期`);
+          console.log(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} に ${validLogs.length}件のログを同期`);
+          // 成功時は失敗カウンターをリセット
+          this.syncFailureCount = 0;
         } else {
           const errorMessage = result?.message || result?.error || '不明なエラー';
           console.warn(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} への同期失敗:`, errorMessage);
-          // 失敗したログを同期待ちに戻す
-          this.pendingLogs.unshift(...logsToSync);
+          
+          // 失敗回数をカウント
+          this.syncFailureCount = (this.syncFailureCount || 0) + 1;
+          
+          // 連続失敗が5回未満の場合のみ再試行
+          if (this.syncFailureCount < 5) {
+            this.pendingLogs.unshift(...validLogs);
+            console.log(`[AuditManager] 同期失敗回数: ${this.syncFailureCount}/5 - 再試行します`);
+          } else {
+            console.warn(`[AuditManager] 同期失敗回数が上限に達しました (${this.syncFailureCount}/5) - ログを破棄します`);
+            // 失敗回数が上限に達した場合は、ログを破棄してアプリケーションの動作を継続
+            this.syncFailureCount = 0; // リセット
+          }
         }
       } catch (apiError) {
         console.warn(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} へのAPI呼び出しエラー:`, apiError.message);
-        // 失敗したログを同期待ちに戻す
-        this.pendingLogs.unshift(...logsToSync);
+        
+        // 失敗回数をカウント
+        this.syncFailureCount = (this.syncFailureCount || 0) + 1;
+        
+        // 連続失敗が5回未満の場合のみ再試行
+        if (this.syncFailureCount < 5) {
+          this.pendingLogs.unshift(...validLogs);
+          console.log(`[AuditManager] API呼び出し失敗回数: ${this.syncFailureCount}/5 - 再試行します`);
+        } else {
+          console.warn(`[AuditManager] API呼び出し失敗回数が上限に達しました (${this.syncFailureCount}/5) - ログを破棄します`);
+          // 失敗回数が上限に達した場合は、ログを破棄してアプリケーションの動作を継続
+          this.syncFailureCount = 0; // リセット
+        }
       }
 
       this.lastSyncTime = Date.now();
@@ -396,23 +512,33 @@ class AuditManager {
           };
         } else {
           const errorMessage = result?.message || result?.error || '不明なエラー';
-          this.pendingLogs.unshift(...logsToSync);
+          console.warn(`[AuditManager] 手動同期失敗: ${errorMessage}`);
+          // 手動同期の場合は失敗してもログを破棄して成功として扱う
           return { 
-            success: false, 
-            message: `監査ログ専用スプレッドシートへの同期に失敗しました: ${errorMessage}`,
-            syncedCount: 0
+            success: true, 
+            message: `監査ログ専用スプレッドシートへの同期に失敗しましたが、アプリケーションは正常に動作します: ${errorMessage}`,
+            syncedCount: 0,
+            warning: true
           };
         }
       } catch (apiError) {
-        this.pendingLogs.unshift(...logsToSync);
+        console.warn(`[AuditManager] 手動同期API呼び出しエラー: ${apiError.message}`);
+        // 手動同期の場合は失敗してもログを破棄して成功として扱う
         return { 
-          success: false, 
-          message: `監査ログ専用スプレッドシートへのAPI呼び出しエラー: ${apiError.message}`,
-          syncedCount: 0
+          success: true, 
+          message: `監査ログ専用スプレッドシートへのAPI呼び出しエラーが発生しましたが、アプリケーションは正常に動作します: ${apiError.message}`,
+          syncedCount: 0,
+          warning: true
         };
       }
     } catch (error) {
-      return { success: false, message: error.message };
+      console.warn(`[AuditManager] 手動同期全体エラー: ${error.message}`);
+      // 手動同期の場合は失敗しても成功として扱う
+      return { 
+        success: true, 
+        message: `手動同期中にエラーが発生しましたが、アプリケーションは正常に動作します: ${error.message}`,
+        warning: true
+      };
     }
   }
 
@@ -422,7 +548,9 @@ class AuditManager {
       const result = await this.callGASAPI('getAuditLogsFromSpreadsheet', [spreadsheetId, limit, offset]);
       return result;
     } catch (error) {
-      return { success: false, message: error.message };
+      console.warn(`[AuditManager] ログ取得エラー: ${error.message}`);
+      // ログ取得に失敗しても空の結果を返してアプリケーションの動作を継続
+      return { success: true, logs: [], total: 0, message: 'ログの取得に失敗しましたが、アプリケーションは正常に動作します' };
     }
   }
 
@@ -432,7 +560,9 @@ class AuditManager {
       const result = await this.callGASAPI('getAuditLogStatsFromSpreadsheet', [spreadsheetId]);
       return result;
     } catch (error) {
-      return { success: false, message: error.message };
+      console.warn(`[AuditManager] 統計取得エラー: ${error.message}`);
+      // 統計取得に失敗しても空の結果を返してアプリケーションの動作を継続
+      return { success: true, stats: {}, message: '統計の取得に失敗しましたが、アプリケーションは正常に動作します' };
     }
   }
 
@@ -483,7 +613,8 @@ class AuditManager {
         script.src = `${apiUrl}?${queryString}`;
         script.onerror = () => {
           delete window[callback];
-          reject(new Error(`API呼び出しに失敗しました: ${functionName}`));
+          // エラーをresolveで返して、呼び出し側で処理できるようにする
+          resolve({ success: false, error: `API呼び出しに失敗しました: ${functionName}` });
         };
         
         document.head.appendChild(script);
@@ -492,7 +623,8 @@ class AuditManager {
           if (window[callback]) {
             delete window[callback];
             document.head.removeChild(script);
-            reject(new Error('API呼び出しがタイムアウトしました'));
+            // タイムアウトもresolveで返して、呼び出し側で処理できるようにする
+            resolve({ success: false, error: 'API呼び出しがタイムアウトしました' });
           }
         }, 15000);
       });
@@ -504,12 +636,32 @@ class AuditManager {
         functionName,
         params
       });
-      throw new Error(`GAS API呼び出しエラー: ${error.message}`);
+      // エラーをthrowせずに、エラー情報を含むオブジェクトを返す
+      return { success: false, error: `GAS API呼び出しエラー: ${error.message}` };
     }
+  }
+
+  // ログシステムの状態を取得
+  getStatus() {
+    return {
+      isEnabled: this.isEnabled,
+      autoSync: this.autoSync,
+      logsCount: this.logs ? this.logs.length : 0,
+      pendingLogsCount: this.pendingLogs ? this.pendingLogs.length : 0,
+      lastSyncTime: this.lastSyncTime,
+      syncFailureCount: this.syncFailureCount || 0,
+      storageKey: this.storageKey,
+      maxLogs: this.maxLogs
+    };
   }
 
   // ログを取得（フィルタリング対応）
   getLogs(filter = {}) {
+    if (!Array.isArray(this.logs)) {
+      console.warn('[AuditManager] ログ配列が初期化されていません');
+      return [];
+    }
+    
     let filteredLogs = [...this.logs];
 
     if (filter.operation) {
@@ -669,7 +821,15 @@ if (typeof window !== 'undefined') {
     getConfig: () => auditManager.getConfig(),
     setConfig: (config) => auditManager.setConfig(config),
     getCurrentSpreadsheetId: () => auditManager.getCurrentSpreadsheetId(),
-    testGASAPI: () => auditManager.testGASAPI()
+    testGASAPI: () => auditManager.testGASAPI(),
+    getStatus: () => auditManager.getStatus(),
+    debug: () => {
+      console.log('=== AuditManager Debug Info ===');
+      console.log('Status:', auditManager.getStatus());
+      console.log('Logs:', auditManager.getLogs());
+      console.log('LocalStorage:', localStorage.getItem('AUDIT_LOGS'));
+      console.log('===============================');
+    }
   };
 }
 

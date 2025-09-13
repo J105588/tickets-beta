@@ -2,9 +2,9 @@
 // 複数のAPI URL（使用数上限回避のため分散）
 const GAS_API_URLS = [
   //jxjin2010@gmail.com
-  "https://script.google.com/macros/s/AKfycbzPs1zSw_C-hCwqLr4gwdOwrAHsnaih5RMA7x1SrSZe7ncxgCBI0PxTUStqoUFlmYk/exec",
+  "https://script.google.com/macros/s/AKfycbwfm5EyVuF4jSijUofzHVSb5u0-OgIbPKm_qEaY9kxsiYP426ZFgHF24R4jsEyLpjP5/exec",
   //jxjin.ig.school@gmail.com
-  "https://script.google.com/macros/s/AKfycbyVcSqa_bHJC1J65ATUOlWPbWWY076fQqVRoUQu-RWmXPWkHAN9w25Hf0bM2v60Mogz/exec"
+  "https://script.google.com/macros/s/AKfycbxfwjKhUzJMKxpeQTe8V3VE4r7y-PqAHwg7LlamzwLT4FRFSAh-lcuB66opmK0_DDYQ/exec"
 ];
 
 // 監査ログ専用スプレッドシートID（すべての監査ログを一元管理）

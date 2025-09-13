@@ -34,9 +34,32 @@ function doPost(e) {
     if (e.parameter && e.parameter.func) {
       // JSONPリクエストの場合
       funcName = e.parameter.func;
-      const paramsStr = e.parameter.params;
-      console.log('JSONP request - funcName:', funcName, 'paramsStr:', paramsStr);
-      funcParams = paramsStr ? JSON.parse(decodeURIComponent(paramsStr)) : [];
+      
+      // 複数のparamsパラメータを処理
+      const paramsParam = e.parameter.params;
+      
+      if (Array.isArray(paramsParam)) {
+        // 複数のparamsパラメータがある場合
+        funcParams = paramsParam.map(param => {
+          try {
+            return JSON.parse(decodeURIComponent(param));
+          } catch (e) {
+            return param;
+          }
+        });
+      } else if (paramsParam) {
+        // 単一のparamsパラメータの場合
+        try {
+          const parsed = JSON.parse(decodeURIComponent(paramsParam));
+          funcParams = Array.isArray(parsed) ? parsed : [parsed];
+        } catch (e) {
+          funcParams = [paramsParam];
+        }
+      } else {
+        funcParams = [];
+      }
+      
+      console.log('JSONP request - funcName:', funcName, 'paramsParam:', paramsParam, 'funcParams:', funcParams);
     } else if (e.postData && e.postData.contents) {
       // POSTリクエストの場合
       const body = e.postData.contents;
@@ -1326,6 +1349,21 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
       return { success: true, message: '同期するログがありません', syncedCount: 0 };
     }
 
+    // ログの各要素を検証
+    const validLogs = logs.filter(log => {
+      if (!log || typeof log !== 'object') {
+        console.warn('無効なログをスキップ:', log);
+        return false;
+      }
+      return true;
+    });
+
+    if (validLogs.length === 0) {
+      return { success: true, message: '有効なログがありません', syncedCount: 0 };
+    }
+
+    console.log(`有効なログ数: ${validLogs.length}/${logs.length}`);
+
     const lock = LockService.getScriptLock();
     if (lock.tryLock(15000)) {
       try {
@@ -1355,7 +1393,7 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
         const lastRow = logSheet.getLastRow();
         const newRows = [];
         
-        logs.forEach(log => {
+        validLogs.forEach(log => {
           const row = [
             log.id || '',
             log.timestamp || '',
@@ -1389,6 +1427,7 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
         }
 
         Logger.log(`監査ログ同期完了: スプレッドシート ${spreadsheetId} に ${newRows.length}件のログを同期`);
+        console.log(`監査ログ同期完了: スプレッドシート ${spreadsheetId} に ${newRows.length}件のログを同期`);
         return { success: true, message: `${newRows.length}件のログを同期しました`, syncedCount: newRows.length };
 
       } finally {
