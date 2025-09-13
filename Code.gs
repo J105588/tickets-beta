@@ -20,17 +20,38 @@ function doPost(e) {
   }
 
   try {
-    const body = e.postData.contents;
-
-    // パラメータを解析
-    const params = {};
-    body.split('&').forEach(pair => {
-      const [key, value] = pair.split('=');
-      params[key] = JSON.parse(decodeURIComponent(value.replace(/\+/g, ' ')));
+    // デバッグログを追加
+    console.log('doPost called with:', {
+      hasParameter: !!e.parameter,
+      hasPostData: !!e.postData,
+      parameterKeys: e.parameter ? Object.keys(e.parameter) : 'none',
+      postDataContents: e.postData ? e.postData.contents : 'none'
     });
-
-    const funcName = params.func;
-    const funcParams = params.params || [];
+    
+    // JSONPリクエストの場合はe.parameterから取得
+    let funcName, funcParams;
+    
+    if (e.parameter && e.parameter.func) {
+      // JSONPリクエストの場合
+      funcName = e.parameter.func;
+      const paramsStr = e.parameter.params;
+      console.log('JSONP request - funcName:', funcName, 'paramsStr:', paramsStr);
+      funcParams = paramsStr ? JSON.parse(decodeURIComponent(paramsStr)) : [];
+    } else if (e.postData && e.postData.contents) {
+      // POSTリクエストの場合
+      const body = e.postData.contents;
+      const params = {};
+      body.split('&').forEach(pair => {
+        const [key, value] = pair.split('=');
+        params[key] = JSON.parse(decodeURIComponent(value.replace(/\+/g, ' ')));
+      });
+      funcName = params.func;
+      funcParams = params.params || [];
+    } else {
+      throw new Error("リクエストパラメータが正しくありません");
+    }
+    
+    console.log('Parsed parameters:', { funcName, funcParams });
 
     if (!funcName) {
       throw new Error("呼び出す関数が指定されていません。(funcが必要です)");
@@ -89,11 +110,28 @@ function doGet(e) {
   let response;
   let callback = e.parameter.callback; // コールバック関数名を取得
 
+  // デバッグ用ログ
+  console.log('doGet called with parameters:', e.parameter);
+  console.log('doGet called with query string:', e.queryString);
+
   try {
     const funcName = e.parameter.func;
     const paramsStr = e.parameter.params;
     
-    if (!funcName) {
+    // HTMLファイルの要求をチェック
+    if (e.parameter.page) {
+      const pageName = e.parameter.page;
+      console.log('HTML page request:', pageName);
+      
+      // HTMLファイルの要求の場合は、APIの状態情報を返す
+      response = {
+        status: 'OK',
+        message: `HTML page "${pageName}" requested - API is running`,
+        version: '2.0',
+        optimized: true,
+        note: 'This is an API endpoint, not a web page'
+      };
+    } else if (!funcName) {
       // APIの状態情報を返す（関数呼び出しがない場合）
       response = {
         status: 'OK',
@@ -140,7 +178,18 @@ function doGet(e) {
     }
   } catch (err) {
     console.error('doGet処理エラー:', err);
-    response = { success: false, error: err.message };
+    
+    // HTMLファイル関連のエラーメッセージを特別に処理
+    if (err.message && err.message.includes('HTML ファイルは見つかりませんでした')) {
+      response = {
+        success: false,
+        error: 'このエンドポイントはAPI専用です。HTMLファイルは提供されません。',
+        note: 'Webページにアクセスするには、適切なHTMLファイルを直接開いてください。',
+        apiStatus: 'running'
+      };
+    } else {
+      response = { success: false, error: err.message };
+    }
   }
 
   // JSONP形式でレスポンスを返す
@@ -1260,6 +1309,15 @@ function execDangerCommand(action, payload, password) {
  */
 function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
   try {
+    // デバッグログを追加
+    console.log('syncAuditLogsToSpreadsheet called with:', {
+      spreadsheetId: spreadsheetId,
+      logsType: typeof logs,
+      logsIsArray: Array.isArray(logs),
+      logsLength: logs ? logs.length : 'undefined',
+      logsFirstItem: logs && logs.length > 0 ? logs[0] : 'none'
+    });
+    
     if (!spreadsheetId) {
       return { success: false, message: 'スプレッドシートIDが指定されていません' };
     }

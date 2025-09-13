@@ -35,6 +35,9 @@ class GasAPI {
         const encodedParams = encodeURIComponent(JSON.stringify(params));
         const encodedFuncName = encodeURIComponent(functionName);
         
+        // timeoutIdを先に定義
+        let timeoutId;
+        
         window[callbackName] = (data) => {
           debugLog(`API Response (JSONP): ${functionName}`, data);
           try {
@@ -79,7 +82,7 @@ class GasAPI {
         script.src = fullUrl;
         script.async = true;
         
-        let timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(() => {
           console.error('API call timeout:', { functionName, fullUrl });
           try {
             // 遅延応答で callback 未定義にならないよう、しばらくはNOOPを残す

@@ -34,6 +34,9 @@ class OptimizedGasAPI {
         const encodedParams = encodeURIComponent(JSON.stringify(params));
         const encodedFuncName = encodeURIComponent(functionName);
         
+        // timeoutIdを先に定義
+        let timeoutId;
+        
         window[callbackName] = (data) => {
           debugLog(`Optimized API Response: ${functionName}`, data);
           try {
@@ -71,7 +74,7 @@ class OptimizedGasAPI {
         script.src = fullUrl;
         script.async = true;
         
-        let timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(() => {
           console.error('API call timeout:', { functionName, fullUrl });
           try {
             window[callbackName] = function noop() { /* late JSONP ignored */ };
