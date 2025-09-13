@@ -106,13 +106,70 @@ function doPost(e) {
     };
 
     if (functionMap[funcName]) {
-      response = functionMap[funcName].apply(null, funcParams);
+      // パラメータの最終検証と修正
+      let finalParams = funcParams;
+      
+      // funcParamsが配列でない場合は配列に変換
+      if (!Array.isArray(finalParams)) {
+        finalParams = [finalParams];
+      }
+      
+      // 各パラメータの型をチェック
+      finalParams = finalParams.map(param => {
+        if (param === null || param === undefined) {
+          return null;
+        }
+        return param;
+      });
+      
+      console.log('Final parameters for', funcName, ':', finalParams);
+      
+      try {
+        response = functionMap[funcName].apply(null, finalParams);
+      } catch (applyError) {
+        console.error('Function apply error:', applyError);
+        console.error('Function:', funcName, 'Params:', finalParams);
+        console.error('Error stack:', applyError.stack);
+        
+        // エラー詳細をログに記録
+        Logger.log(`Function Apply Error - Function: ${funcName}, Error: ${applyError.message}, Stack: ${applyError.stack}, Params: ${JSON.stringify(finalParams)}`);
+        
+        response = { 
+          success: false, 
+          message: `関数実行エラー: ${applyError.message}`,
+          error: {
+            name: applyError.name,
+            message: applyError.message,
+            stack: applyError.stack,
+            function: funcName,
+            params: finalParams
+          }
+        };
+      }
     } else {
       throw new Error("無効な関数名です: " + funcName);
     }
 
   } catch (err) {
-    response = { error: err.message };
+    console.error('doGet error:', err);
+    console.error('Error stack:', err.stack);
+    
+    // エラー詳細をログに記録
+    Logger.log(`doGet Error - Message: ${err.message}, Stack: ${err.stack}, Request: ${JSON.stringify(e)}`);
+    
+    // エラーレスポンスの統一
+    response = { 
+      success: false, 
+      message: `サーバーエラー: ${err.message}`,
+      error: {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        request: e,
+        timestamp: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    };
   }
 
   // JSONP形式でレスポンスを返す
@@ -208,10 +265,15 @@ function doGet(e) {
         success: false,
         error: 'このエンドポイントはAPI専用です。HTMLファイルは提供されません。',
         note: 'Webページにアクセスするには、適切なHTMLファイルを直接開いてください。',
-        apiStatus: 'running'
+        apiStatus: 'running',
+        timestamp: new Date().toISOString()
       };
     } else {
-      response = { success: false, error: err.message };
+      response = { 
+        success: false, 
+        error: err.message,
+        timestamp: new Date().toISOString()
+      };
     }
   }
 
@@ -1335,22 +1397,55 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
     // デバッグログを追加
     console.log('syncAuditLogsToSpreadsheet called with:', {
       spreadsheetId: spreadsheetId,
+      spreadsheetIdType: typeof spreadsheetId,
       logsType: typeof logs,
       logsIsArray: Array.isArray(logs),
       logsLength: logs ? logs.length : 'undefined',
-      logsFirstItem: logs && logs.length > 0 ? logs[0] : 'none'
+      logsFirstItem: logs && logs.length > 0 ? logs[0] : 'none',
+      allArgs: arguments
     });
     
-    if (!spreadsheetId) {
+    // パラメータの正規化
+    let normalizedSpreadsheetId = spreadsheetId;
+    let normalizedLogs = logs;
+    
+    // オブジェクト形式のパラメータを処理
+    if (typeof spreadsheetId === 'object' && spreadsheetId !== null) {
+      if (spreadsheetId.spreadsheetId) {
+        normalizedSpreadsheetId = spreadsheetId.spreadsheetId;
+      }
+      if (spreadsheetId.logs) {
+        normalizedLogs = spreadsheetId.logs;
+      }
+    }
+    
+    // 文字列化されたログを解析
+    if (typeof normalizedLogs === 'string') {
+      try {
+        normalizedLogs = JSON.parse(normalizedLogs);
+      } catch (e) {
+        console.error('ログのJSON解析に失敗:', e);
+        return { success: false, message: 'ログデータの解析に失敗しました' };
+      }
+    }
+    
+    console.log('Normalized parameters:', {
+      spreadsheetId: normalizedSpreadsheetId,
+      logsType: typeof normalizedLogs,
+      logsIsArray: Array.isArray(normalizedLogs),
+      logsLength: normalizedLogs ? normalizedLogs.length : 'undefined'
+    });
+    
+    if (!normalizedSpreadsheetId) {
       return { success: false, message: 'スプレッドシートIDが指定されていません' };
     }
 
-    if (!Array.isArray(logs) || logs.length === 0) {
+    if (!Array.isArray(normalizedLogs) || normalizedLogs.length === 0) {
       return { success: true, message: '同期するログがありません', syncedCount: 0 };
     }
 
     // ログの各要素を検証
-    const validLogs = logs.filter(log => {
+    const validLogs = normalizedLogs.filter(log => {
       if (!log || typeof log !== 'object') {
         console.warn('無効なログをスキップ:', log);
         return false;
@@ -1362,12 +1457,12 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
       return { success: true, message: '有効なログがありません', syncedCount: 0 };
     }
 
-    console.log(`有効なログ数: ${validLogs.length}/${logs.length}`);
+    console.log(`有効なログ数: ${validLogs.length}/${normalizedLogs.length}`);
 
     const lock = LockService.getScriptLock();
     if (lock.tryLock(15000)) {
       try {
-        const ss = SpreadsheetApp.openById(spreadsheetId);
+        const ss = SpreadsheetApp.openById(normalizedSpreadsheetId);
         let logSheet = ss.getSheetByName('AuditLogs');
         
         if (!logSheet) {
@@ -1426,8 +1521,8 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
           SpreadsheetApp.flush();
         }
 
-        Logger.log(`監査ログ同期完了: スプレッドシート ${spreadsheetId} に ${newRows.length}件のログを同期`);
-        console.log(`監査ログ同期完了: スプレッドシート ${spreadsheetId} に ${newRows.length}件のログを同期`);
+        Logger.log(`監査ログ同期完了: スプレッドシート ${normalizedSpreadsheetId} に ${newRows.length}件のログを同期`);
+        console.log(`監査ログ同期完了: スプレッドシート ${normalizedSpreadsheetId} に ${newRows.length}件のログを同期`);
         return { success: true, message: `${newRows.length}件のログを同期しました`, syncedCount: newRows.length };
 
       } finally {
@@ -1438,8 +1533,22 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
     }
 
   } catch (e) {
-    Logger.log(`syncAuditLogsToSpreadsheet Error: ${e.message}\n${e.stack}`);
-    return { success: false, message: `同期エラー: ${e.message}` };
+    console.error('syncAuditLogsToSpreadsheet Error:', e);
+    console.error('Error stack:', e.stack);
+    
+    Logger.log(`syncAuditLogsToSpreadsheet Error: ${e.message}\n${e.stack}\nParams: ${JSON.stringify({spreadsheetId, logs})}`);
+    
+    return { 
+      success: false, 
+      message: `同期エラー: ${e.message}`,
+      error: {
+        name: e.name,
+        message: e.message,
+        stack: e.stack,
+        spreadsheetId: spreadsheetId,
+        logsCount: logs ? logs.length : 0
+      }
+    };
   }
 }
 
