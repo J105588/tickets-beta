@@ -53,7 +53,12 @@ function doPost(e) {
       'reportError': reportError,
       'getSystemLock': getSystemLock,
       'setSystemLock': setSystemLock,
-      'execDangerCommand': execDangerCommand
+      'execDangerCommand': execDangerCommand,
+      // 監査ログ関連の関数
+      'syncAuditLogsToSpreadsheet': syncAuditLogsToSpreadsheet,
+      'getAuditLogsFromSpreadsheet': getAuditLogsFromSpreadsheet,
+      'getAuditLogStatsFromSpreadsheet': getAuditLogStatsFromSpreadsheet,
+      'exportAuditLogsFromSpreadsheet': exportAuditLogsFromSpreadsheet
     };
 
     if (functionMap[funcName]) {
@@ -119,7 +124,12 @@ function doGet(e) {
         'reportError': reportError,
         'getSystemLock': getSystemLock,
         'setSystemLock': setSystemLock,
-        'execDangerCommand': execDangerCommand
+        'execDangerCommand': execDangerCommand,
+        // 監査ログ関連の関数
+        'syncAuditLogsToSpreadsheet': syncAuditLogsToSpreadsheet,
+        'getAuditLogsFromSpreadsheet': getAuditLogsFromSpreadsheet,
+        'getAuditLogStatsFromSpreadsheet': getAuditLogStatsFromSpreadsheet,
+        'exportAuditLogsFromSpreadsheet': exportAuditLogsFromSpreadsheet
       };
 
       if (functionMap[funcName]) {
@@ -1239,4 +1249,331 @@ function execDangerCommand(action, payload, password) {
     Logger.log('execDangerCommand Error: ' + e.message);
     return { success: false, message: e.message };
   }
+}
+
+// ===============================================================
+// === 全スプレッドシート対応監査ログ機能 ===
+// ===============================================================
+
+/**
+ * 監査ログを指定されたスプレッドシートに同期する
+ */
+function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
+  try {
+    if (!spreadsheetId) {
+      return { success: false, message: 'スプレッドシートIDが指定されていません' };
+    }
+
+    if (!Array.isArray(logs) || logs.length === 0) {
+      return { success: true, message: '同期するログがありません', syncedCount: 0 };
+    }
+
+    const lock = LockService.getScriptLock();
+    if (lock.tryLock(15000)) {
+      try {
+        const ss = SpreadsheetApp.openById(spreadsheetId);
+        let logSheet = ss.getSheetByName('AuditLogs');
+        
+        if (!logSheet) {
+          // 監査ログシートを作成
+          logSheet = ss.insertSheet('AuditLogs');
+          
+          // 詳細なヘッダー行を設定
+          const headers = [
+            'ID', 'Timestamp', 'Operation', 'SpreadsheetId', 'Group', 'Day', 'Timeslot',
+            'Mode', 'IsDemo', 'DemoGroup', 'UserAgent', 'URL', 'DeviceInfo',
+            'Details', 'BeforeData', 'AfterData', 'Error', 'StackTrace'
+          ];
+          logSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+          
+          // フォーマットを設定
+          logSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+          logSheet.getRange(1, 1, 1, headers.length).setBackground('#e1f5fe');
+          
+          // 列幅を調整
+          logSheet.autoResizeColumns(1, headers.length);
+        }
+
+        const lastRow = logSheet.getLastRow();
+        const newRows = [];
+        
+        logs.forEach(log => {
+          const row = [
+            log.id || '',
+            log.timestamp || '',
+            log.operation || '',
+            log.spreadsheetId || '',
+            log.group || '',
+            log.day || '',
+            log.timeslot || '',
+            log.mode?.mode || '',
+            log.mode?.isDemo || false,
+            log.mode?.demoGroup || '',
+            log.userAgent || '',
+            log.url || '',
+            JSON.stringify(log.deviceInfo || {}),
+            JSON.stringify(log.details || {}),
+            JSON.stringify(log.beforeData || {}),
+            JSON.stringify(log.afterData || {}),
+            log.error || '',
+            log.stackTrace || ''
+          ];
+          newRows.push(row);
+        });
+
+        if (newRows.length > 0) {
+          const startRow = lastRow + 1;
+          logSheet.getRange(startRow, 1, newRows.length, newRows[0].length).setValues(newRows);
+          SpreadsheetApp.flush();
+        }
+
+        Logger.log(`監査ログ同期完了: スプレッドシート ${spreadsheetId} に ${newRows.length}件のログを同期`);
+        return { success: true, message: `${newRows.length}件のログを同期しました`, syncedCount: newRows.length };
+
+      } finally {
+        lock.releaseLock();
+      }
+    } else {
+      return { success: false, message: '処理が混み合っています。しばらくしてから再度お試しください。' };
+    }
+
+  } catch (e) {
+    Logger.log(`syncAuditLogsToSpreadsheet Error: ${e.message}\n${e.stack}`);
+    return { success: false, message: `同期エラー: ${e.message}` };
+  }
+}
+
+/**
+ * 指定されたスプレッドシートから監査ログを取得する
+ */
+function getAuditLogsFromSpreadsheet(spreadsheetId, limit = 100, offset = 0) {
+  try {
+    if (!spreadsheetId) {
+      return { success: false, message: 'スプレッドシートIDが指定されていません' };
+    }
+
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const logSheet = ss.getSheetByName('AuditLogs');
+    
+    if (!logSheet) {
+      return { success: true, logs: [], total: 0, message: '監査ログシートが見つかりません' };
+    }
+
+    const lastRow = logSheet.getLastRow();
+    if (lastRow <= 1) {
+      return { success: true, logs: [], total: 0 };
+    }
+
+    // データを取得（ヘッダー行を除く）
+    const dataRange = logSheet.getRange(2, 1, lastRow - 1, 18);
+    const data = dataRange.getValues();
+    
+    // フィルタリングとソート（最新順）
+    const logs = data.map(row => ({
+      id: row[0],
+      timestamp: row[1],
+      operation: row[2],
+      spreadsheetId: row[3],
+      group: row[4],
+      day: row[5],
+      timeslot: row[6],
+      mode: {
+        mode: row[7],
+        isDemo: row[8],
+        demoGroup: row[9]
+      },
+      userAgent: row[10],
+      url: row[11],
+      deviceInfo: row[12] ? JSON.parse(row[12]) : {},
+      details: row[13] ? JSON.parse(row[13]) : {},
+      beforeData: row[14] ? JSON.parse(row[14]) : {},
+      afterData: row[15] ? JSON.parse(row[15]) : {},
+      error: row[16] || null,
+      stackTrace: row[17] || null
+    })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // ページネーション
+    const paginatedLogs = logs.slice(offset, offset + limit);
+    
+    return { 
+      success: true, 
+      logs: paginatedLogs, 
+      total: logs.length,
+      hasMore: offset + limit < logs.length,
+      spreadsheetId: spreadsheetId
+    };
+
+  } catch (e) {
+    Logger.log(`getAuditLogsFromSpreadsheet Error: ${e.message}\n${e.stack}`);
+    return { success: false, message: `ログ取得エラー: ${e.message}` };
+  }
+}
+
+/**
+ * 指定されたスプレッドシートの監査ログ統計情報を取得する
+ */
+function getAuditLogStatsFromSpreadsheet(spreadsheetId) {
+  try {
+    if (!spreadsheetId) {
+      return { success: false, message: 'スプレッドシートIDが指定されていません' };
+    }
+
+    const ss = SpreadsheetApp.openById(spreadsheetId);
+    const logSheet = ss.getSheetByName('AuditLogs');
+    
+    if (!logSheet) {
+      return { success: true, stats: { 
+        total: 0, 
+        byOperation: {}, 
+        byMode: {}, 
+        byDate: {}, 
+        byGroup: {},
+        demoOperations: 0, 
+        normalOperations: 0,
+        errorCount: 0,
+        spreadsheetId: spreadsheetId
+      } };
+    }
+
+    const lastRow = logSheet.getLastRow();
+    if (lastRow <= 1) {
+      return { success: true, stats: { 
+        total: 0, 
+        byOperation: {}, 
+        byMode: {}, 
+        byDate: {}, 
+        byGroup: {},
+        demoOperations: 0, 
+        normalOperations: 0,
+        errorCount: 0,
+        spreadsheetId: spreadsheetId
+      } };
+    }
+
+    const dataRange = logSheet.getRange(2, 1, lastRow - 1, 18);
+    const data = dataRange.getValues();
+    
+    const stats = {
+      total: data.length,
+      byOperation: {},
+      byMode: {},
+      byDate: {},
+      byGroup: {},
+      demoOperations: 0,
+      normalOperations: 0,
+      errorCount: 0,
+      spreadsheetId: spreadsheetId
+    };
+
+    data.forEach(row => {
+      const operation = row[2];
+      const mode = row[7];
+      const isDemo = row[8];
+      const timestamp = row[1];
+      const group = row[4];
+      const error = row[16];
+
+      // 操作別統計
+      stats.byOperation[operation] = (stats.byOperation[operation] || 0) + 1;
+      
+      // モード別統計
+      stats.byMode[mode] = (stats.byMode[mode] || 0) + 1;
+      
+      // グループ別統計
+      if (group) {
+        stats.byGroup[group] = (stats.byGroup[group] || 0) + 1;
+      }
+      
+      // DEMO/通常別統計
+      if (isDemo) {
+        stats.demoOperations++;
+      } else {
+        stats.normalOperations++;
+      }
+      
+      // エラー統計
+      if (error) {
+        stats.errorCount++;
+      }
+      
+      // 日付別統計
+      if (timestamp) {
+        const date = timestamp.split('T')[0];
+        stats.byDate[date] = (stats.byDate[date] || 0) + 1;
+      }
+    });
+
+    return { success: true, stats };
+
+  } catch (e) {
+    Logger.log(`getAuditLogStatsFromSpreadsheet Error: ${e.message}\n${e.stack}`);
+    return { success: false, message: `統計取得エラー: ${e.message}` };
+  }
+}
+
+/**
+ * 指定されたスプレッドシートの監査ログをエクスポートする
+ */
+function exportAuditLogsFromSpreadsheet(spreadsheetId, format = 'json') {
+  try {
+    if (!spreadsheetId) {
+      return { success: false, message: 'スプレッドシートIDが指定されていません' };
+    }
+
+    const result = getAuditLogsFromSpreadsheet(spreadsheetId, 10000, 0); // 最大10000件
+    if (!result.success) {
+      return result;
+    }
+
+    const logs = result.logs;
+    
+    if (format === 'csv') {
+      const csvData = convertAuditLogsToCSV(logs);
+      return { success: true, data: csvData, format: 'csv', spreadsheetId: spreadsheetId };
+    } else {
+      return { success: true, data: logs, format: 'json', spreadsheetId: spreadsheetId };
+    }
+
+  } catch (e) {
+    Logger.log(`exportAuditLogsFromSpreadsheet Error: ${e.message}\n${e.stack}`);
+    return { success: false, message: `エクスポートエラー: ${e.message}` };
+  }
+}
+
+/**
+ * 監査ログをCSV形式に変換する
+ */
+function convertAuditLogsToCSV(logs) {
+  if (logs.length === 0) return '';
+  
+  const headers = [
+    'ID', 'Timestamp', 'Operation', 'SpreadsheetId', 'Group', 'Day', 'Timeslot',
+    'Mode', 'IsDemo', 'DemoGroup', 'UserAgent', 'URL', 'DeviceInfo',
+    'Details', 'BeforeData', 'AfterData', 'Error', 'StackTrace'
+  ];
+  
+  const rows = logs.map(log => [
+    log.id,
+    log.timestamp,
+    log.operation,
+    log.spreadsheetId || '',
+    log.group || '',
+    log.day || '',
+    log.timeslot || '',
+    log.mode?.mode || '',
+    log.mode?.isDemo || false,
+    log.mode?.demoGroup || '',
+    log.userAgent || '',
+    log.url || '',
+    JSON.stringify(log.deviceInfo || {}),
+    JSON.stringify(log.details || {}),
+    JSON.stringify(log.beforeData || {}),
+    JSON.stringify(log.afterData || {}),
+    log.error || '',
+    log.stackTrace || ''
+  ]);
+
+  return [headers, ...rows].map(row => 
+    row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(',')
+  ).join('\n');
 }

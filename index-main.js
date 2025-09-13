@@ -1,5 +1,6 @@
 import { loadSidebar, toggleSidebar, showModeChangeModal } from './sidebar.js';    
 import { DemoMode } from './config.js';
+import { auditManager } from './audit-manager.js';
 
 (async () => {
   try {

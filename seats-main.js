@@ -3,6 +3,7 @@ import OptimizedGasAPI from './optimized-api.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
 import { apiUrlManager, DEBUG_MODE, debugLog, DemoMode } from './config.js';
 import uiOptimizer from './ui-optimizer.js';
+import { auditManager } from './audit-manager.js';
 
 /**
  * 座席選択画面のメイン処理
@@ -873,10 +874,28 @@ async function checkInSelected() {
   showLoader(true);
   
   try {
+    // 監査ログ：チェックイン開始
+    await auditManager.log('checkin_start', {
+      group: GROUP,
+      day: DAY,
+      timeslot: TIMESLOT,
+      seats: selectedSeats,
+      beforeData: { selectedSeats: selectedSeats }
+    });
+
     // バックグラウンドでAPI呼び出し
     const response = await GasAPI.checkInMultipleSeats(GROUP, DAY, TIMESLOT, seatIds);
     
     if (response.success) {
+      // 監査ログ：チェックイン成功
+      await auditManager.log('checkin_success', {
+        group: GROUP,
+        day: DAY,
+        timeslot: TIMESLOT,
+        seats: selectedSeats,
+        afterData: { status: 'checked-in', message: response.message }
+      });
+
       // 成功時：即座に成功メッセージを表示（ローダーは非表示）
       showLoader(false);
       
@@ -1008,9 +1027,27 @@ async function confirmReservation() {
   showLoader(true);
   
   try {
+    // 監査ログ：予約開始
+    await auditManager.log('reservation_start', {
+      group: GROUP,
+      day: DAY,
+      timeslot: TIMESLOT,
+      seats: seatsToReserve,
+      beforeData: { selectedSeats: seatsToReserve }
+    });
+
     const response = await GasAPI.reserveSeats(GROUP, DAY, TIMESLOT, seatsToReserve);
     
     if (response.success) {
+      // 監査ログ：予約成功
+      await auditManager.log('reservation_success', {
+        group: GROUP,
+        day: DAY,
+        timeslot: TIMESLOT,
+        seats: seatsToReserve,
+        afterData: { status: 'reserved', message: response.message }
+      });
+
       // 成功時：即座に成功メッセージを表示（ローダーは非表示）
       showLoader(false);
       
@@ -1037,6 +1074,16 @@ async function confirmReservation() {
       }, 1000); // 1秒後にバックグラウンド更新
       
     } else {
+      // 監査ログ：予約失敗
+      await auditManager.log('reservation_failed', {
+        group: GROUP,
+        day: DAY,
+        timeslot: TIMESLOT,
+        seats: seatsToReserve,
+        error: response.message || 'Unknown error',
+        afterData: { status: 'failed', error: response.message }
+      });
+
       // オフライン委譲レスポンスの処理
       if (response.error === 'offline_delegate' && response.functionName && response.params) {
         console.log('[予約] オフライン委譲レスポンスを処理中...');

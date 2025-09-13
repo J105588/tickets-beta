@@ -5,6 +5,7 @@
 import GasAPI from './api.js'; // GasAPIをインポート
 import { DemoMode } from './config.js';
 import { loadSidebar, toggleSidebar, showModeChangeModal, applyModeChange, closeModeModal } from './sidebar.js';
+import { auditManager } from './audit-manager.js';
 
 // URLパラメータ取得
 const urlParams = new URLSearchParams(window.location.search);
@@ -168,6 +169,16 @@ async function issueWalkinConsecutive() {
   reservationResult.classList.remove('show');
 
   try {
+    // 監査ログ：当日券発行開始（連続席）
+    await auditManager.log('walkin_issue_start', {
+      group: GROUP,
+      day: DAY,
+      timeslot: TIMESLOT,
+      type: 'consecutive',
+      count: num,
+      beforeData: { count: num, type: 'consecutive' }
+    });
+
     const response = await GasAPI.assignWalkInConsecutiveSeats(GROUP, DAY, TIMESLOT, num);
     
     // オフライン委譲レスポンスの処理
@@ -212,6 +223,17 @@ async function issueWalkinConsecutive() {
     }
     
     if (response.success) {
+      // 監査ログ：当日券発行成功（連続席）
+      await auditManager.log('walkin_issue_success', {
+        group: GROUP,
+        day: DAY,
+        timeslot: TIMESLOT,
+        type: 'consecutive',
+        count: num,
+        seats: response.seatIds || [response.seatId],
+        afterData: { status: 'issued', seats: response.seatIds || [response.seatId] }
+      });
+
       showLoader(false);
       showSuccessNotification(response.message || '座席が確保されました。');
 

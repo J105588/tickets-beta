@@ -1,4 +1,6 @@
 import GasAPI from './api.js'; // GasAPIをインポート
+import { auditManager } from './audit-manager.js';
+import { auditConfig } from './audit-config.js';
 
 const sidebarHTML = `
   <div id="sidebar-panel" class="sidebar">
@@ -15,6 +17,9 @@ const sidebarHTML = `
     </div>
     <div class="debug-section">
       <button class="debug-btn" onclick="testGASConnection()">GAS疎通テスト</button>
+      <a href="audit-dashboard.html" class="debug-btn" style="display: block; text-align: center; margin-top: 10px; text-decoration: none; color: inherit;">監査ログダッシュボード</a>
+      <button class="debug-btn" onclick="manualSyncLogs()" style="margin-top: 10px;">手動同期</button>
+      <button class="debug-btn" onclick="showSyncStatus()" style="margin-top: 5px;">同期ステータス</button>
     </div>
   </div>
   <div id="sidebar-overlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
@@ -109,6 +114,14 @@ async function applyModeChange() {
     try {
         // 通常モードに戻る場合はパスワード検証をスキップ
         if (selectedMode === 'normal') {
+            // 監査ログ：通常モードへの変更
+            auditLogger.log('mode_change_to_normal', {
+                fromMode: localStorage.getItem('currentMode') || 'normal',
+                toMode: 'normal',
+                beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
+                afterData: { newMode: 'normal' }
+            });
+
             localStorage.setItem('currentMode', selectedMode);
             updateModeDisplay();
             alert('通常モードに切り替えました');
@@ -127,6 +140,14 @@ async function applyModeChange() {
         const result = await GasAPI.verifyModePassword(selectedMode, password);
 
         if (result.success) {
+            // 監査ログ：モード変更成功
+            auditLogger.log('mode_change_success', {
+                fromMode: localStorage.getItem('currentMode') || 'normal',
+                toMode: selectedMode,
+                beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
+                afterData: { newMode: selectedMode }
+            });
+
             localStorage.setItem('currentMode', selectedMode); // 現在のモードを保存
             updateModeDisplay(); // 表示を更新
             
@@ -262,6 +283,50 @@ window.testGASConnection = async function() {
   } catch (error) {
     alert('GAS疎通テストでエラーが発生しました！\n\nエラー: ' + error.message);
   }
+};
+
+// 手動同期機能
+window.manualSyncLogs = async function() {
+  try {
+    const result = await auditManager.manualSync();
+    
+    if (result.success) {
+      alert('同期完了: ' + result.message);
+    } else {
+      alert('同期に失敗しました: ' + result.message);
+    }
+  } catch (error) {
+    alert('同期エラー: ' + error.message);
+  }
+};
+
+// 同期ステータス表示
+window.showSyncStatus = function() {
+  const config = auditManager.getConfig();
+  const stats = auditManager.getStats();
+  
+  const statusText = `
+=== 監査ログシステムステータス ===
+
+【基本設定】
+有効: ${config.isEnabled ? '有効' : '無効'}
+自動同期: ${config.autoSync ? '有効' : '無効'}
+同期間隔: ${config.syncInterval / 1000}秒
+最大ログ数: ${config.maxLogs}
+
+【現在の状態】
+総ログ数: ${stats.total}
+同期待ちログ: ${config.pendingLogs}件
+最終同期: ${config.lastSyncTime ? new Date(config.lastSyncTime).toLocaleString('ja-JP') : '未実行'}
+
+【統計情報】
+DEMO操作: ${stats.demoOperations}
+通常操作: ${stats.normalOperations}
+エラー数: ${stats.errorCount || 0}
+スプレッドシート数: ${Object.keys(stats.bySpreadsheet || {}).length}
+  `;
+  
+  alert(statusText);
 };
 
 export { loadSidebar, toggleSidebar, showModeChangeModal, closeModeModal, applyModeChange };

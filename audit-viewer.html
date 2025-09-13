@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>監査ログビューア - チケット管理システム</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #6f42c1 0%, #8e44ad 100%);
+            color: white;
+            padding: 20px 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .controls {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .filter-group label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.9rem;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            padding: 8px 12px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #6f42c1;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a32a3;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-info:hover {
+            background: #138496;
+        }
+
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-warning:hover {
+            background: #e0a800;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            padding: 20px 30px;
+            background: #f8f9fa;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #6f42c1;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .logs-container {
+            padding: 20px 30px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            padding: 15px;
+            transition: all 0.2s;
+        }
+
+        .log-entry:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .log-operation {
+            font-weight: bold;
+            color: #6f42c1;
+            font-size: 1.1rem;
+        }
+
+        .log-timestamp {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+
+        .log-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .log-detail {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .log-detail-label {
+            font-weight: 600;
+            color: #495057;
+            font-size: 0.8rem;
+            margin-bottom: 2px;
+        }
+
+        .log-detail-value {
+            color: #212529;
+            font-size: 0.9rem;
+            word-break: break-word;
+        }
+
+        .log-mode {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .mode-normal { background: #e3f2fd; color: #1976d2; }
+        .mode-admin { background: #fff3e0; color: #f57c00; }
+        .mode-walkin { background: #e8f5e8; color: #388e3c; }
+        .mode-superadmin { background: #fce4ec; color: #c2185b; }
+
+        .log-demo {
+            background: #f3e5f5;
+            color: #7b1fa2;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            margin-left: 5px;
+        }
+
+        .no-logs {
+            text-align: center;
+            color: #6c757d;
+            font-style: italic;
+            padding: 40px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 30px;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-group {
+                width: 100%;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .log-details {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 監査ログビューア</h1>
+            <p>システムのすべての操作を詳細に記録・表示</p>
+        </div>
+
+        <div class="controls">
+            <div class="filter-group">
+                <label for="operationFilter">操作</label>
+                <select id="operationFilter">
+                    <option value="">すべて</option>
+                    <option value="reservation_start">予約開始</option>
+                    <option value="reservation_success">予約成功</option>
+                    <option value="reservation_failed">予約失敗</option>
+                    <option value="checkin_start">チェックイン開始</option>
+                    <option value="checkin_success">チェックイン成功</option>
+                    <option value="mode_change_success">モード変更成功</option>
+                    <option value="mode_change_to_normal">通常モード変更</option>
+                    <option value="walkin_issue_start">当日券発行開始</option>
+                    <option value="walkin_issue_success">当日券発行成功</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="modeFilter">モード</label>
+                <select id="modeFilter">
+                    <option value="">すべて</option>
+                    <option value="normal">通常モード</option>
+                    <option value="admin">管理者モード</option>
+                    <option value="walkin">当日券モード</option>
+                    <option value="superadmin">最高管理者モード</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="demoFilter">DEMO</label>
+                <select id="demoFilter">
+                    <option value="">すべて</option>
+                    <option value="true">DEMOモード</option>
+                    <option value="false">通常モード</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label for="dateFrom">開始日</label>
+                <input type="date" id="dateFrom">
+            </div>
+
+            <div class="filter-group">
+                <label for="dateTo">終了日</label>
+                <input type="date" id="dateTo">
+            </div>
+
+            <button class="btn btn-primary" onclick="applyFilters()">フィルター適用</button>
+            <button class="btn btn-secondary" onclick="clearFilters()">クリア</button>
+            <button class="btn btn-success" onclick="exportLogs('json')">JSON出力</button>
+            <button class="btn btn-success" onclick="exportLogs('csv')">CSV出力</button>
+            <button class="btn btn-info" onclick="manualSync()">手動同期</button>
+            <button class="btn btn-warning" onclick="loadFromSpreadsheet()">スプシから読み込み</button>
+            <button class="btn btn-secondary" onclick="showSyncStatus()">同期ステータス</button>
+            <button class="btn btn-danger" onclick="clearAllLogs()">全ログ削除</button>
+        </div>
+
+        <div class="stats" id="statsContainer">
+            <div class="loading">統計情報を読み込み中...</div>
+        </div>
+
+        <div class="logs-container" id="logsContainer">
+            <div class="loading">ログを読み込み中...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { auditLogger } from './audit-logger.js';
+        import { auditSyncManager } from './audit-sync-manager.js';
+
+        let currentLogs = [];
+        let filteredLogs = [];
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadLogs();
+            updateStats();
+            displayLogs();
+            
+            // 同期イベントリスナーを設定
+            setupSyncEventListeners();
+            
+            // 既存のログとの統合チェック
+            await checkExistingLogsIntegration();
+        });
+
+        // 同期イベントリスナーを設定
+        function setupSyncEventListeners() {
+            window.addEventListener('auditSync', (event) => {
+                const { type, data } = event.detail;
+                
+                if (type === 'logsUpdated') {
+                    console.log(`[AuditViewer] ${data.newLogs.length}件の新しいログが同期されました`);
+                    // ログを再読み込みして表示を更新
+                    loadLogs().then(() => {
+                        updateStats();
+                        displayLogs();
+                    });
+                }
+            });
+        }
+
+        // ログを読み込み
+        async function loadLogs() {
+            try {
+                currentLogs = auditLogger.getLogs();
+                filteredLogs = [...currentLogs];
+            } catch (error) {
+                showError('ログの読み込みに失敗しました: ' + error.message);
+            }
+        }
+
+        // フィルターを適用
+        function applyFilters() {
+            const operation = document.getElementById('operationFilter').value;
+            const mode = document.getElementById('modeFilter').value;
+            const demo = document.getElementById('demoFilter').value;
+            const dateFrom = document.getElementById('dateFrom').value;
+            const dateTo = document.getElementById('dateTo').value;
+
+            filteredLogs = auditLogger.getLogs({
+                operation: operation || undefined,
+                mode: mode || undefined,
+                isDemo: demo === '' ? undefined : demo === 'true',
+                dateFrom: dateFrom || undefined,
+                dateTo: dateTo || undefined
+            });
+
+            displayLogs();
+        }
+
+        // フィルターをクリア
+        function clearFilters() {
+            document.getElementById('operationFilter').value = '';
+            document.getElementById('modeFilter').value = '';
+            document.getElementById('demoFilter').value = '';
+            document.getElementById('dateFrom').value = '';
+            document.getElementById('dateTo').value = '';
+            
+            filteredLogs = [...currentLogs];
+            displayLogs();
+        }
+
+        // ログを表示
+        function displayLogs() {
+            const container = document.getElementById('logsContainer');
+            
+            if (filteredLogs.length === 0) {
+                container.innerHTML = '<div class="no-logs">該当するログが見つかりません</div>';
+                return;
+            }
+
+            const logsHtml = filteredLogs.map(log => {
+                const modeClass = `mode-${log.mode.mode}`;
+                const demoBadge = log.mode.isDemo ? '<span class="log-demo">DEMO</span>' : '';
+                
+                return `
+                    <div class="log-entry">
+                        <div class="log-header">
+                            <div class="log-operation">${getOperationText(log.operation)}</div>
+                            <div class="log-timestamp">${formatTimestamp(log.timestamp)}</div>
+                        </div>
+                        <div class="log-details">
+                            <div class="log-detail">
+                                <div class="log-detail-label">モード</div>
+                                <div class="log-detail-value">
+                                    <span class="log-mode ${modeClass}">${getModeText(log.mode.mode)}</span>
+                                    ${demoBadge}
+                                </div>
+                            </div>
+                            <div class="log-detail">
+                                <div class="log-detail-label">グループ</div>
+                                <div class="log-detail-value">${log.details.group || '-'}</div>
+                            </div>
+                            <div class="log-detail">
+                                <div class="log-detail-label">日時</div>
+                                <div class="log-detail-value">${log.details.day || '-'}日目 ${log.details.timeslot || '-'}</div>
+                            </div>
+                            <div class="log-detail">
+                                <div class="log-detail-label">座席</div>
+                                <div class="log-detail-value">${log.details.seats ? (Array.isArray(log.details.seats) ? log.details.seats.join(', ') : log.details.seats) : '-'}</div>
+                            </div>
+                            <div class="log-detail">
+                                <div class="log-detail-label">URL</div>
+                                <div class="log-detail-value">${log.url}</div>
+                            </div>
+                        </div>
+                        ${log.details.error ? `<div class="log-detail"><div class="log-detail-label">エラー</div><div class="log-detail-value" style="color: #dc3545;">${log.details.error}</div></div>` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = logsHtml;
+        }
+
+        // 統計情報を更新
+        function updateStats() {
+            const stats = auditLogger.getStats();
+            const container = document.getElementById('statsContainer');
+            
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-number">${stats.total}</div>
+                    <div class="stat-label">総ログ数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.demoOperations}</div>
+                    <div class="stat-label">DEMO操作</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.normalOperations}</div>
+                    <div class="stat-label">通常操作</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${Object.keys(stats.byOperation).length}</div>
+                    <div class="stat-label">操作種類</div>
+                </div>
+            `;
+        }
+
+        // ログをエクスポート
+        function exportLogs(format) {
+            try {
+                const data = auditLogger.exportLogs(format);
+                if (!data) {
+                    showError('エクスポートに失敗しました');
+                    return;
+                }
+
+                const blob = new Blob([data], { type: format === 'csv' ? 'text/csv' : 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `audit_logs_${new Date().toISOString().split('T')[0]}.${format}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                showError('エクスポートに失敗しました: ' + error.message);
+            }
+        }
+
+        // 全ログを削除
+        function clearAllLogs() {
+            if (confirm('すべてのログを削除しますか？この操作は元に戻せません。')) {
+                if (auditLogger.clearLogs()) {
+                    loadLogs();
+                    updateStats();
+                    displayLogs();
+                    alert('ログを削除しました');
+                } else {
+                    showError('ログの削除に失敗しました');
+                }
+            }
+        }
+
+        // エラーを表示
+        function showError(message) {
+            const container = document.getElementById('logsContainer');
+            container.innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        // 操作テキストを取得
+        function getOperationText(operation) {
+            const texts = {
+                'reservation_start': '予約開始',
+                'reservation_success': '予約成功',
+                'reservation_failed': '予約失敗',
+                'checkin_start': 'チェックイン開始',
+                'checkin_success': 'チェックイン成功',
+                'mode_change_success': 'モード変更成功',
+                'mode_change_to_normal': '通常モード変更',
+                'walkin_issue_start': '当日券発行開始',
+                'walkin_issue_success': '当日券発行成功'
+            };
+            return texts[operation] || operation;
+        }
+
+        // モードテキストを取得
+        function getModeText(mode) {
+            const texts = {
+                'normal': '通常モード',
+                'admin': '管理者モード',
+                'walkin': '当日券モード',
+                'superadmin': '最高管理者モード'
+            };
+            return texts[mode] || mode;
+        }
+
+        // タイムスタンプをフォーマット
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleString('ja-JP', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // 手動同期を実行
+        async function manualSync() {
+            try {
+                // 監査ログの同期
+                const auditResult = await auditLogger.manualSync();
+                
+                // 同期マネージャーの同期
+                const syncResult = await auditSyncManager.manualSync();
+                
+                let message = '';
+                if (auditResult.success) {
+                    message += auditResult.message + '\n';
+                }
+                if (syncResult.success) {
+                    message += syncResult.message + '\n';
+                }
+                
+                if (auditResult.success || syncResult.success) {
+                    alert(message || '同期が完了しました');
+                    // 同期後にローカルログを更新
+                    await loadLogs();
+                    updateStats();
+                    displayLogs();
+                } else {
+                    alert('同期に失敗しました: ' + (auditResult.message || syncResult.message));
+                }
+            } catch (error) {
+                alert('同期エラー: ' + error.message);
+            }
+        }
+
+        // スプレッドシートからログを読み込み
+        async function loadFromSpreadsheet() {
+            try {
+                const group = prompt('グループ名を入力してください（デフォルト: 見本演劇）:', '見本演劇') || '見本演劇';
+                const day = prompt('日を入力してください（デフォルト: 1）:', '1') || '1';
+                const timeslot = prompt('時間帯を入力してください（デフォルト: A）:', 'A') || 'A';
+                
+                const result = await auditLogger.getLogsFromSpreadsheet(group, day, timeslot, 1000, 0);
+                if (result.success) {
+                    // スプレッドシートのログをローカルログに追加
+                    const spreadsheetLogs = result.logs;
+                    const localLogs = auditLogger.getLogs();
+                    
+                    // 重複を避けるため、既存のログと比較
+                    const newLogs = spreadsheetLogs.filter(spreadsheetLog => 
+                        !localLogs.some(localLog => localLog.id === spreadsheetLog.id)
+                    );
+                    
+                    if (newLogs.length > 0) {
+                        // 新しいログをローカルストレージに追加
+                        const allLogs = [...newLogs, ...localLogs];
+                        auditLogger.logs = allLogs;
+                        auditLogger.saveLogs();
+                        
+                        alert(`${newLogs.length}件の新しいログを読み込みました`);
+                        await loadLogs();
+                        updateStats();
+                        displayLogs();
+                    } else {
+                        alert('新しいログはありません');
+                    }
+                } else {
+                    alert('ログの読み込みに失敗しました: ' + result.message);
+                }
+            } catch (error) {
+                alert('読み込みエラー: ' + error.message);
+            }
+        }
+
+        // 既存のログとの統合チェック
+        async function checkExistingLogsIntegration() {
+            try {
+                // ローカルストレージから既存のログを確認
+                const existingLogs = JSON.parse(localStorage.getItem('AUDIT_LOGS') || '[]');
+                
+                if (existingLogs.length > 0) {
+                    console.log(`[AuditViewer] 既存のログ ${existingLogs.length}件を検出`);
+                    
+                    // 既存のログをスプレッドシートに同期
+                    const syncResult = await auditLogger.manualSync();
+                    if (syncResult.success) {
+                        console.log('[AuditViewer] 既存ログの同期が完了しました');
+                    }
+                }
+                
+                // スプレッドシートから新しいログをチェック
+                const spreadsheetResult = await auditLogger.getLogsFromSpreadsheet('見本演劇', '1', 'A', 50, 0);
+                if (spreadsheetResult.success && spreadsheetResult.logs.length > 0) {
+                    console.log(`[AuditViewer] スプレッドシートから ${spreadsheetResult.logs.length}件のログを検出`);
+                }
+                
+            } catch (error) {
+                console.warn('[AuditViewer] 既存ログ統合チェックエラー:', error);
+            }
+        }
+
+        // 同期ステータスを表示
+        function showSyncStatus() {
+            const auditStatus = auditLogger.getSyncStatus();
+            const syncConfig = auditSyncManager.getSyncConfig();
+            const deviceInfo = auditSyncManager.getDeviceInfo();
+            
+            const statusText = `
+=== 監査ログ同期ステータス ===
+
+【基本情報】
+デバイスID: ${deviceInfo.deviceId}
+オンライン状態: ${deviceInfo.online ? 'オンライン' : 'オフライン'}
+プラットフォーム: ${deviceInfo.platform}
+言語: ${deviceInfo.language}
+
+【同期設定】
+同期機能: ${auditStatus.syncEnabled ? '有効' : '無効'}
+同期間隔: ${auditStatus.syncInterval / 1000}秒
+同期待ちログ: ${auditStatus.pendingLogs}件
+最終同期: ${auditStatus.lastSyncTime ? new Date(auditStatus.lastSyncTime).toLocaleString('ja-JP') : '未実行'}
+
+【同期マネージャー】
+同期マネージャー: ${syncConfig.syncEnabled ? '有効' : '無効'}
+最終同期チェック: ${syncConfig.lastSyncCheck ? new Date(syncConfig.lastSyncCheck).toLocaleString('ja-JP') : '未実行'}
+            `;
+            alert(statusText);
+        }
+
+        // グローバル関数として公開
+        window.applyFilters = applyFilters;
+        window.clearFilters = clearFilters;
+        window.exportLogs = exportLogs;
+        window.clearAllLogs = clearAllLogs;
+        window.manualSync = manualSync;
+        window.loadFromSpreadsheet = loadFromSpreadsheet;
+        window.showSyncStatus = showSyncStatus;
+    </script>
+</body>
+</html>
