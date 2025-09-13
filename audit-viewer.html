@@ -366,8 +366,7 @@
     </div>
 
     <script type="module">
-        import { auditLogger } from './audit-logger.js';
-        import { auditSyncManager } from './audit-sync-manager.js';
+        import { auditManager } from './audit-manager.js';
 
         let currentLogs = [];
         let filteredLogs = [];
@@ -404,7 +403,7 @@
         // ログを読み込み
         async function loadLogs() {
             try {
-                currentLogs = auditLogger.getLogs();
+                currentLogs = auditManager.getLogs();
                 filteredLogs = [...currentLogs];
             } catch (error) {
                 showError('ログの読み込みに失敗しました: ' + error.message);
@@ -419,7 +418,7 @@
             const dateFrom = document.getElementById('dateFrom').value;
             const dateTo = document.getElementById('dateTo').value;
 
-            filteredLogs = auditLogger.getLogs({
+            filteredLogs = auditManager.getLogs({
                 operation: operation || undefined,
                 mode: mode || undefined,
                 isDemo: demo === '' ? undefined : demo === 'true',
@@ -496,7 +495,7 @@
 
         // 統計情報を更新
         function updateStats() {
-            const stats = auditLogger.getStats();
+            const stats = auditManager.getStats();
             const container = document.getElementById('statsContainer');
             
             container.innerHTML = `
@@ -522,7 +521,7 @@
         // ログをエクスポート
         function exportLogs(format) {
             try {
-                const data = auditLogger.exportLogs(format);
+                const data = auditManager.exportLogs(format);
                 if (!data) {
                     showError('エクスポートに失敗しました');
                     return;
@@ -545,7 +544,7 @@
         // 全ログを削除
         function clearAllLogs() {
             if (confirm('すべてのログを削除しますか？この操作は元に戻せません。')) {
-                if (auditLogger.clearLogs()) {
+                if (auditManager.clearLogs()) {
                     loadLogs();
                     updateStats();
                     displayLogs();
@@ -606,20 +605,19 @@
         async function manualSync() {
             try {
                 // 監査ログの同期
-                const auditResult = await auditLogger.manualSync();
+                const auditResult = await auditManager.manualSync();
                 
                 // 同期マネージャーの同期
-                const syncResult = await auditSyncManager.manualSync();
+                // auditSyncManagerは削除されたため、監査ログのみ同期
                 
                 let message = '';
                 if (auditResult.success) {
-                    message += auditResult.message + '\n';
-                }
-                if (syncResult.success) {
-                    message += syncResult.message + '\n';
+                    message += auditResult.message;
+                } else {
+                    message += '同期に失敗しました: ' + auditResult.message;
                 }
                 
-                if (auditResult.success || syncResult.success) {
+                if (auditResult.success) {
                     alert(message || '同期が完了しました');
                     // 同期後にローカルログを更新
                     await loadLogs();
@@ -640,11 +638,18 @@
                 const day = prompt('日を入力してください（デフォルト: 1）:', '1') || '1';
                 const timeslot = prompt('時間帯を入力してください（デフォルト: A）:', 'A') || 'A';
                 
-                const result = await auditLogger.getLogsFromSpreadsheet(group, day, timeslot, 1000, 0);
+                // 監査ログ専用スプレッドシートIDを取得
+                const auditLogSpreadsheetId = auditManager.getAuditLogSpreadsheetId();
+                if (!auditLogSpreadsheetId) {
+                    alert('監査ログ専用スプレッドシートIDが設定されていません');
+                    return;
+                }
+                
+                const result = await auditManager.getLogsFromSpreadsheet(auditLogSpreadsheetId, 1000, 0);
                 if (result.success) {
                     // スプレッドシートのログをローカルログに追加
                     const spreadsheetLogs = result.logs;
-                    const localLogs = auditLogger.getLogs();
+                    const localLogs = auditManager.getLogs();
                     
                     // 重複を避けるため、既存のログと比較
                     const newLogs = spreadsheetLogs.filter(spreadsheetLog => 
@@ -654,8 +659,8 @@
                     if (newLogs.length > 0) {
                         // 新しいログをローカルストレージに追加
                         const allLogs = [...newLogs, ...localLogs];
-                        auditLogger.logs = allLogs;
-                        auditLogger.saveLogs();
+                        auditManager.logs = allLogs;
+                        auditManager.saveLogs();
                         
                         alert(`${newLogs.length}件の新しいログを読み込みました`);
                         await loadLogs();
@@ -682,14 +687,21 @@
                     console.log(`[AuditViewer] 既存のログ ${existingLogs.length}件を検出`);
                     
                     // 既存のログをスプレッドシートに同期
-                    const syncResult = await auditLogger.manualSync();
+                    const syncResult = await auditManager.manualSync();
                     if (syncResult.success) {
                         console.log('[AuditViewer] 既存ログの同期が完了しました');
                     }
                 }
                 
                 // スプレッドシートから新しいログをチェック
-                const spreadsheetResult = await auditLogger.getLogsFromSpreadsheet('見本演劇', '1', 'A', 50, 0);
+                // 監査ログ専用スプレッドシートIDを取得
+                const auditLogSpreadsheetId = auditManager.getAuditLogSpreadsheetId();
+                if (!auditLogSpreadsheetId) {
+                    alert('監査ログ専用スプレッドシートIDが設定されていません');
+                    return;
+                }
+                
+                const spreadsheetResult = await auditManager.getLogsFromSpreadsheet(auditLogSpreadsheetId, 50, 0);
                 if (spreadsheetResult.success && spreadsheetResult.logs.length > 0) {
                     console.log(`[AuditViewer] スプレッドシートから ${spreadsheetResult.logs.length}件のログを検出`);
                 }
@@ -701,28 +713,18 @@
 
         // 同期ステータスを表示
         function showSyncStatus() {
-            const auditStatus = auditLogger.getSyncStatus();
-            const syncConfig = auditSyncManager.getSyncConfig();
-            const deviceInfo = auditSyncManager.getDeviceInfo();
+            const auditStatus = auditManager.getConfig();
+            // auditSyncManagerは削除されたため、監査ログのみ表示
             
             const statusText = `
 === 監査ログ同期ステータス ===
 
 【基本情報】
-デバイスID: ${deviceInfo.deviceId}
-オンライン状態: ${deviceInfo.online ? 'オンライン' : 'オフライン'}
-プラットフォーム: ${deviceInfo.platform}
-言語: ${deviceInfo.language}
-
-【同期設定】
-同期機能: ${auditStatus.syncEnabled ? '有効' : '無効'}
-同期間隔: ${auditStatus.syncInterval / 1000}秒
-同期待ちログ: ${auditStatus.pendingLogs}件
-最終同期: ${auditStatus.lastSyncTime ? new Date(auditStatus.lastSyncTime).toLocaleString('ja-JP') : '未実行'}
-
-【同期マネージャー】
-同期マネージャー: ${syncConfig.syncEnabled ? '有効' : '無効'}
-最終同期チェック: ${syncConfig.lastSyncCheck ? new Date(syncConfig.lastSyncCheck).toLocaleString('ja-JP') : '未実行'}
+- 同期有効: ${auditStatus.autoSync ? 'はい' : 'いいえ'}
+- 同期間隔: ${auditStatus.syncInterval}ms
+- 同期待ちログ: ${auditStatus.pendingLogs}件
+- 最終同期: ${auditStatus.lastSyncTime ? new Date(auditStatus.lastSyncTime).toLocaleString() : '未実行'}
+- 最大ログ数: ${auditStatus.maxLogs}件
             `;
             alert(statusText);
         }

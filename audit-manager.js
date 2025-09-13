@@ -1,6 +1,9 @@
 // audit-manager.js
 // 全スプレッドシート対応監査ログ管理システム
 
+// config.jsから監査ログ専用スプレッドシートIDとGAS API URLをインポート
+import { AUDIT_LOG_SPREADSHEET_ID, GAS_API_URLS } from './config.js';
+
 class AuditManager {
   constructor() {
     this.storageKey = 'AUDIT_LOGS';
@@ -38,11 +41,20 @@ class AuditManager {
     if (!this.isEnabled) return;
 
     try {
+      // ファイル名と識別子を取得
+      const fileName = this.getCurrentFileName();
+      const identifier = this.getCurrentIdentifier();
+      
       const logEntry = {
         id: this.generateId(),
         timestamp: new Date().toISOString(),
         operation: operation,
-        spreadsheetId: details.spreadsheetId || this.getCurrentSpreadsheetId(),
+        fileName: fileName,
+        identifier: identifier,
+        // 監査ログ専用スプレッドシートIDを使用
+        auditLogSpreadsheetId: this.getAuditLogSpreadsheetId(),
+        // 元のスプレッドシートIDも記録（参照用）
+        originalSpreadsheetId: details.spreadsheetId || this.getCurrentSpreadsheetId(),
         group: details.group || this.getCurrentGroup(),
         day: details.day || this.getCurrentDay(),
         timeslot: details.timeslot || this.getCurrentTimeslot(),
@@ -75,7 +87,32 @@ class AuditManager {
     }
   }
 
-  // 現在のスプレッドシートIDを取得
+  // 監査ログ専用スプレッドシートIDを取得
+  getAuditLogSpreadsheetId() {
+    try {
+      // config.jsから監査ログ専用スプレッドシートIDを取得
+      if (typeof AUDIT_LOG_SPREADSHEET_ID !== 'undefined' && AUDIT_LOG_SPREADSHEET_ID) {
+        if (AUDIT_LOG_SPREADSHEET_ID !== 'YOUR_AUDIT_LOG_SPREADSHEET_ID_HERE') {
+          return AUDIT_LOG_SPREADSHEET_ID;
+        }
+      }
+      
+      // デバッグ情報を出力
+      if (window.DEBUG_MODE) {
+        console.warn('[AuditManager] 監査ログ専用スプレッドシートID取得失敗:', {
+          AUDIT_LOG_SPREADSHEET_ID_Available: typeof AUDIT_LOG_SPREADSHEET_ID !== 'undefined',
+          AUDIT_LOG_SPREADSHEET_ID_Value: typeof AUDIT_LOG_SPREADSHEET_ID !== 'undefined' ? AUDIT_LOG_SPREADSHEET_ID : 'undefined'
+        });
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('[AuditManager] 監査ログ専用スプレッドシートID取得エラー:', error);
+      return null;
+    }
+  }
+
+  // 現在のスプレッドシートIDを取得（座席管理用）
   getCurrentSpreadsheetId() {
     try {
       const urlParams = new URLSearchParams(window.location.search);
@@ -84,8 +121,23 @@ class AuditManager {
       const timeslot = urlParams.get('timeslot') || 'A';
       
       // SpreadsheetIds.gsの関数を呼び出し
-      if (window.getSeatSheetId) {
-        return window.getSeatSheetId(group, day, timeslot);
+      if (window.getSeatSheetId && typeof window.getSeatSheetId === 'function') {
+        const spreadsheetId = window.getSeatSheetId(group, day, timeslot);
+        // 有効なIDかチェック
+        if (spreadsheetId && spreadsheetId !== 'null' && spreadsheetId !== 'undefined') {
+          return spreadsheetId;
+        }
+      }
+      
+      // デバッグ情報を出力
+      if (window.DEBUG_MODE) {
+        console.warn('[AuditManager] スプレッドシートID取得失敗:', {
+          group,
+          day,
+          timeslot,
+          getSeatSheetIdAvailable: !!window.getSeatSheetId,
+          getSeatSheetIdType: typeof window.getSeatSheetId
+        });
       }
       
       return null;
@@ -151,6 +203,33 @@ class AuditManager {
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       timestamp: new Date().toISOString()
     };
+  }
+
+  // 現在のファイル名を取得
+  getCurrentFileName() {
+    try {
+      const path = window.location.pathname;
+      const fileName = path.split('/').pop() || 'index.html';
+      return fileName;
+    } catch (error) {
+      return 'unknown';
+    }
+  }
+
+  // 現在の識別子を取得（ページ固有の識別子）
+  getCurrentIdentifier() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const group = urlParams.get('group') || '見本演劇';
+      const day = urlParams.get('day') || '1';
+      const timeslot = urlParams.get('timeslot') || 'A';
+      const fileName = this.getCurrentFileName();
+      
+      // ファイル名とパラメータを組み合わせた識別子
+      return `${fileName}-${group}-${day}-${timeslot}`;
+    } catch (error) {
+      return this.getCurrentFileName();
+    }
   }
 
   // ログを読み込み
@@ -221,22 +300,46 @@ class AuditManager {
       const logsToSync = [...this.pendingLogs];
       this.pendingLogs = [];
 
-      // スプレッドシートID別にグループ化
-      const logsBySpreadsheet = this.groupLogsBySpreadsheet(logsToSync);
+      // 監査ログ専用スプレッドシートIDを取得
+      const auditLogSpreadsheetId = this.getAuditLogSpreadsheetId();
       
-      // 各スプレッドシートに同期
-      for (const [spreadsheetId, logs] of Object.entries(logsBySpreadsheet)) {
-        if (spreadsheetId && logs.length > 0) {
-          const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [spreadsheetId, logs]);
-          
-          if (result.success) {
-            console.log(`[AuditManager] スプレッドシート ${spreadsheetId} に ${logs.length}件のログを同期`);
-          } else {
-            console.warn(`[AuditManager] スプレッドシート ${spreadsheetId} への同期失敗:`, result.message);
-            // 失敗したログを同期待ちに戻す
-            this.pendingLogs.unshift(...logs);
-          }
+      if (!auditLogSpreadsheetId) {
+        console.warn('[AuditManager] 監査ログ専用スプレッドシートIDが設定されていません');
+        // 失敗したログを同期待ちに戻す
+        this.pendingLogs.unshift(...logsToSync);
+        return;
+      }
+
+      try {
+        // デバッグ情報を出力
+        console.log('[AuditManager] 同期開始:', {
+          auditLogSpreadsheetId,
+          logsCount: logsToSync.length,
+          logsToSyncType: typeof logsToSync,
+          isLogsArray: Array.isArray(logsToSync),
+          firstLog: logsToSync[0] ? {
+            id: logsToSync[0].id,
+            operation: logsToSync[0].operation,
+            fileName: logsToSync[0].fileName,
+            type: typeof logsToSync[0]
+          } : null,
+          allLogs: logsToSync
+        });
+        
+        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [auditLogSpreadsheetId, logsToSync]);
+        
+        if (result && result.success) {
+          console.log(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} に ${logsToSync.length}件のログを同期`);
+        } else {
+          const errorMessage = result?.message || result?.error || '不明なエラー';
+          console.warn(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} への同期失敗:`, errorMessage);
+          // 失敗したログを同期待ちに戻す
+          this.pendingLogs.unshift(...logsToSync);
         }
+      } catch (apiError) {
+        console.warn(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} へのAPI呼び出しエラー:`, apiError.message);
+        // 失敗したログを同期待ちに戻す
+        this.pendingLogs.unshift(...logsToSync);
       }
 
       this.lastSyncTime = Date.now();
@@ -273,36 +376,39 @@ class AuditManager {
       }
 
       this.pendingLogs = [];
-      const logsBySpreadsheet = this.groupLogsBySpreadsheet(logsToSync);
-      let totalSynced = 0;
-      const errors = [];
-
-      for (const [spreadsheetId, logs] of Object.entries(logsBySpreadsheet)) {
-        if (spreadsheetId && logs.length > 0) {
-          const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [spreadsheetId, logs]);
-          
-          if (result.success) {
-            totalSynced += logs.length;
-          } else {
-            errors.push(`スプレッドシート ${spreadsheetId}: ${result.message}`);
-            this.pendingLogs.unshift(...logs);
-          }
-        }
+      
+      // 監査ログ専用スプレッドシートIDを取得
+      const auditLogSpreadsheetId = this.getAuditLogSpreadsheetId();
+      
+      if (!auditLogSpreadsheetId) {
+        return { success: false, message: '監査ログ専用スプレッドシートIDが設定されていません' };
       }
 
-      this.lastSyncTime = Date.now();
-      
-      if (errors.length > 0) {
+      try {
+        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [auditLogSpreadsheetId, logsToSync]);
+        
+        if (result && result.success) {
+          this.lastSyncTime = Date.now();
+          return { 
+            success: true, 
+            message: `${logsToSync.length}件のログを監査ログ専用スプレッドシートに同期しました`,
+            syncedCount: logsToSync.length
+          };
+        } else {
+          const errorMessage = result?.message || result?.error || '不明なエラー';
+          this.pendingLogs.unshift(...logsToSync);
+          return { 
+            success: false, 
+            message: `監査ログ専用スプレッドシートへの同期に失敗しました: ${errorMessage}`,
+            syncedCount: 0
+          };
+        }
+      } catch (apiError) {
+        this.pendingLogs.unshift(...logsToSync);
         return { 
           success: false, 
-          message: `一部の同期に失敗しました: ${errors.join(', ')}`,
-          syncedCount: totalSynced
-        };
-      } else {
-        return { 
-          success: true, 
-          message: `${totalSynced}件のログを同期しました`,
-          syncedCount: totalSynced
+          message: `監査ログ専用スプレッドシートへのAPI呼び出しエラー: ${apiError.message}`,
+          syncedCount: 0
         };
       }
     } catch (error) {
@@ -333,15 +439,39 @@ class AuditManager {
   // GAS APIを呼び出す
   async callGASAPI(functionName, params = []) {
     try {
-      const apiUrls = window.GAS_API_URLS || [
+      // デバッグ情報を出力
+      console.log('[AuditManager] callGASAPI呼び出し:', {
+        functionName,
+        params,
+        paramsType: typeof params,
+        isArray: Array.isArray(params),
+        paramsLength: params ? params.length : 'undefined'
+      });
+      
+      const apiUrls = GAS_API_URLS || [
         "https://script.google.com/macros/s/AKfycbzEKu8evZEihhPQaDTbVUKr2ffR0aDYHcIa5kIOg6fvl_f4YOJEspmV41He3aKi4Ru9/exec"
       ];
       
       const apiUrl = apiUrls[0];
       const callback = 'auditManagerCallback';
       
-      const encodedParams = params.map(param => encodeURIComponent(JSON.stringify(param)));
+      // パラメータの検証とエンコード
+      const safeParams = Array.isArray(params) ? params : [];
+      console.log('[AuditManager] 安全なパラメータ:', safeParams);
+      
+      const encodedParams = safeParams.map((param, index) => {
+        try {
+          console.log(`[AuditManager] パラメータ ${index} をエンコード中:`, param, typeof param);
+          return encodeURIComponent(JSON.stringify(param));
+        } catch (error) {
+          console.warn(`[AuditManager] パラメータ ${index} エンコードエラー:`, error, param);
+          return encodeURIComponent(JSON.stringify(String(param)));
+        }
+      });
+      
+      console.log('[AuditManager] エンコードされたパラメータ:', encodedParams);
       const queryString = `func=${functionName}&params=${encodedParams.join('&params=')}&callback=${callback}`;
+      console.log('[AuditManager] クエリ文字列:', queryString);
       
       return new Promise((resolve, reject) => {
         window[callback] = (response) => {
@@ -353,7 +483,7 @@ class AuditManager {
         script.src = `${apiUrl}?${queryString}`;
         script.onerror = () => {
           delete window[callback];
-          reject(new Error('API呼び出しに失敗しました'));
+          reject(new Error(`API呼び出しに失敗しました: ${functionName}`));
         };
         
         document.head.appendChild(script);
@@ -367,6 +497,13 @@ class AuditManager {
         }, 15000);
       });
     } catch (error) {
+      console.error('[AuditManager] callGASAPI エラー詳細:', {
+        error: error,
+        message: error.message,
+        stack: error.stack,
+        functionName,
+        params
+      });
       throw new Error(`GAS API呼び出しエラー: ${error.message}`);
     }
   }
@@ -502,6 +639,18 @@ class AuditManager {
       this.cleanupOldLogs();
     }
   }
+
+  // GAS APIのテスト関数
+  async testGASAPI() {
+    try {
+      const result = await this.callGASAPI('testApi', []);
+      console.log('[AuditManager] GAS APIテスト結果:', result);
+      return result;
+    } catch (error) {
+      console.error('[AuditManager] GAS APIテスト失敗:', error);
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 // グローバルインスタンス
@@ -519,7 +668,8 @@ if (typeof window !== 'undefined') {
     clearLogs: () => auditManager.clearLogs(),
     getConfig: () => auditManager.getConfig(),
     setConfig: (config) => auditManager.setConfig(config),
-    getCurrentSpreadsheetId: () => auditManager.getCurrentSpreadsheetId()
+    getCurrentSpreadsheetId: () => auditManager.getCurrentSpreadsheetId(),
+    testGASAPI: () => auditManager.testGASAPI()
   };
 }
 

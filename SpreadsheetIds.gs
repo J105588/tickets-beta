@@ -5,6 +5,7 @@
 // 操作対象のシート名（固定）
 const TARGET_SEAT_SHEET_NAME = "Seats";  // リネーム: 値は"Seats"に統一
 const LOG_SHEET_NAME = "ParentApplications";
+const AUDIT_LOG_SHEET_NAME = "AuditLogs";  // 監査ログ専用シート名
 
 // 座席管理用スプレッドシートID
 const SEAT_SHEET_IDS = {
@@ -42,6 +43,9 @@ const LOG_SHEET_IDS = {
   "1-1-A": "YOUR_LOG_ID_HERE", "1-1-B": "YOUR_LOG_ID_HERE", // ... 各公演に対応するID
 };
 
+// 監査ログ専用スプレッドシートID（すべての監査ログを一元管理）
+const AUDIT_LOG_SPREADSHEET_ID = "1ZGQ5BTNW_pTDuMvbZgla2B_soisdvtCM2UrnVi_L-5c";
+
 // スプレッドシートIDを取得する関数
 function getSeatSheetId(group, day, timeslot) {
   const key = `${group}-${day}-${timeslot}`;
@@ -78,4 +82,18 @@ function getLogSheetId(group, day, timeslot) {
     return null;
   }
   return id;
+}
+
+// 監査ログ専用スプレッドシートIDを取得する関数
+function getAuditLogSpreadsheetId() {
+  if (!AUDIT_LOG_SPREADSHEET_ID || AUDIT_LOG_SPREADSHEET_ID === "YOUR_AUDIT_LOG_SPREADSHEET_ID_HERE") {
+    console.warn('監査ログ専用スプレッドシートIDが設定されていません');
+    return null;
+  }
+  return AUDIT_LOG_SPREADSHEET_ID;
+}
+
+// 監査ログ専用シート名を取得する関数
+function getAuditLogSheetName() {
+  return AUDIT_LOG_SHEET_NAME;
 }

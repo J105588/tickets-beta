@@ -1280,8 +1280,8 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
           
           // 詳細なヘッダー行を設定
           const headers = [
-            'ID', 'Timestamp', 'Operation', 'SpreadsheetId', 'Group', 'Day', 'Timeslot',
-            'Mode', 'IsDemo', 'DemoGroup', 'UserAgent', 'URL', 'DeviceInfo',
+            'ID', 'Timestamp', 'Operation', 'FileName', 'Identifier', 'AuditLogSpreadsheetId', 'OriginalSpreadsheetId', 
+            'Group', 'Day', 'Timeslot', 'Mode', 'IsDemo', 'DemoGroup', 'UserAgent', 'URL', 'DeviceInfo',
             'Details', 'BeforeData', 'AfterData', 'Error', 'StackTrace'
           ];
           logSheet.getRange(1, 1, 1, headers.length).setValues([headers]);
@@ -1302,7 +1302,10 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
             log.id || '',
             log.timestamp || '',
             log.operation || '',
-            log.spreadsheetId || '',
+            log.fileName || '',
+            log.identifier || '',
+            log.auditLogSpreadsheetId || '',
+            log.originalSpreadsheetId || '',
             log.group || '',
             log.day || '',
             log.timeslot || '',
@@ -1365,7 +1368,7 @@ function getAuditLogsFromSpreadsheet(spreadsheetId, limit = 100, offset = 0) {
     }
 
     // データを取得（ヘッダー行を除く）
-    const dataRange = logSheet.getRange(2, 1, lastRow - 1, 18);
+    const dataRange = logSheet.getRange(2, 1, lastRow - 1, 22);
     const data = dataRange.getValues();
     
     // フィルタリングとソート（最新順）
@@ -1373,23 +1376,26 @@ function getAuditLogsFromSpreadsheet(spreadsheetId, limit = 100, offset = 0) {
       id: row[0],
       timestamp: row[1],
       operation: row[2],
-      spreadsheetId: row[3],
-      group: row[4],
-      day: row[5],
-      timeslot: row[6],
+      fileName: row[3],
+      identifier: row[4],
+      auditLogSpreadsheetId: row[5],
+      originalSpreadsheetId: row[6],
+      group: row[7],
+      day: row[8],
+      timeslot: row[9],
       mode: {
-        mode: row[7],
-        isDemo: row[8],
-        demoGroup: row[9]
+        mode: row[10],
+        isDemo: row[11],
+        demoGroup: row[12]
       },
-      userAgent: row[10],
-      url: row[11],
-      deviceInfo: row[12] ? JSON.parse(row[12]) : {},
-      details: row[13] ? JSON.parse(row[13]) : {},
-      beforeData: row[14] ? JSON.parse(row[14]) : {},
-      afterData: row[15] ? JSON.parse(row[15]) : {},
-      error: row[16] || null,
-      stackTrace: row[17] || null
+      userAgent: row[13],
+      url: row[14],
+      deviceInfo: row[15] ? JSON.parse(row[15]) : {},
+      details: row[16] ? JSON.parse(row[16]) : {},
+      beforeData: row[17] ? JSON.parse(row[17]) : {},
+      afterData: row[18] ? JSON.parse(row[18]) : {},
+      error: row[19] || null,
+      stackTrace: row[20] || null
     })).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     // ページネーション
@@ -1450,7 +1456,7 @@ function getAuditLogStatsFromSpreadsheet(spreadsheetId) {
       } };
     }
 
-    const dataRange = logSheet.getRange(2, 1, lastRow - 1, 18);
+    const dataRange = logSheet.getRange(2, 1, lastRow - 1, 22);
     const data = dataRange.getValues();
     
     const stats = {
@@ -1459,6 +1465,8 @@ function getAuditLogStatsFromSpreadsheet(spreadsheetId) {
       byMode: {},
       byDate: {},
       byGroup: {},
+      byFileName: {},
+      byIdentifier: {},
       demoOperations: 0,
       normalOperations: 0,
       errorCount: 0,
@@ -1467,14 +1475,26 @@ function getAuditLogStatsFromSpreadsheet(spreadsheetId) {
 
     data.forEach(row => {
       const operation = row[2];
-      const mode = row[7];
-      const isDemo = row[8];
+      const fileName = row[3];
+      const identifier = row[4];
+      const mode = row[10];
+      const isDemo = row[11];
       const timestamp = row[1];
-      const group = row[4];
-      const error = row[16];
+      const group = row[7];
+      const error = row[19];
 
       // 操作別統計
       stats.byOperation[operation] = (stats.byOperation[operation] || 0) + 1;
+      
+      // ファイル名別統計
+      if (fileName) {
+        stats.byFileName[fileName] = (stats.byFileName[fileName] || 0) + 1;
+      }
+      
+      // 識別子別統計
+      if (identifier) {
+        stats.byIdentifier[identifier] = (stats.byIdentifier[identifier] || 0) + 1;
+      }
       
       // モード別統計
       stats.byMode[mode] = (stats.byMode[mode] || 0) + 1;

@@ -2,10 +2,13 @@
 // 複数のAPI URL（使用数上限回避のため分散）
 const GAS_API_URLS = [
   //jxjin2010@gmail.com
-  "https://script.google.com/macros/s/AKfycbxYX13qUAWNEHFhpbeJAotESA1C_tVCqR7UDd1Bld2DNr4hLwq0uPweg_QzjmLeveHF/exec",
+  "https://script.google.com/macros/s/AKfycbwXNQWyX_zdoZnjD4_-eY-hphCRsJST5whi932ieNgCdOAyM-XjKRhhNibBAWaAbTRJ/exec",
   //jxjin.ig.school@gmail.com
-  "https://script.google.com/macros/s/AKfycby2Khf8eRe6rMsd7xm_JdFVGLXa6cquC7a9jZXdjhvT2W7kdItWl8GvbFF-CDc0mW9M/exec"
+  "https://script.google.com/macros/s/AKfycbwbB5RtEpOq98tQJG4hPS30vNt88XRdBU4hAbJK-OoJPR0sknp6Q7sKe2OX3dxnLqsrJA/exec"
 ];
+
+// 監査ログ専用スプレッドシートID（すべての監査ログを一元管理）
+const AUDIT_LOG_SPREADSHEET_ID = "1ZGQ5BTNW_pTDuMvbZgla2B_soisdvtCM2UrnVi_L-5c";
 
 // URL選択とローテーション管理
 class APIUrlManager {
@@ -261,4 +264,4 @@ function debugLog(message, obj = null) {
 }
 
 // 個別にエクスポート
-export { GAS_API_URLS, BACKGROUND_SYNC_URL, DEBUG_MODE, debugLog, apiUrlManager, DemoMode };
+export { GAS_API_URLS, BACKGROUND_SYNC_URL, DEBUG_MODE, debugLog, apiUrlManager, DemoMode, AUDIT_LOG_SPREADSHEET_ID };
