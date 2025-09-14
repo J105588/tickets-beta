@@ -237,6 +237,15 @@ AuditManager.getLogs({ operation: 'seat_reservation' });
 AuditManager.getStats();
 AuditManager.manualSync();
 AuditManager.healthCheck();
+
+// 新機能（v2.3改良版）
+AuditManager.getMemoryUsage();        // メモリ使用量確認
+AuditManager.destroy();               // システム破棄
+AuditManager.startMonitoring();       // エラーモニタリング開始
+AuditManager.stopMonitoring();        // エラーモニタリング停止
+AuditManager.analyzeErrors();         // エラー分析
+AuditManager.autoFix();               // 自動修復
+AuditManager.diagnose();              // システム診断
 ```
 
 ---
@@ -377,6 +386,18 @@ console.log('推奨事項:', health.recommendations);
 // 詳細メトリクスの確認
 console.log('メトリクス:', health.metrics);
 console.log('コンポーネント状態:', health.components);
+
+// メモリ使用量の確認
+const memoryUsage = AuditManager.getMemoryUsage();
+console.log('メモリ使用量:', memoryUsage);
+
+// エラーモニタリングの制御
+AuditManager.startMonitoring();  // 開始
+AuditManager.stopMonitoring();    // 停止
+
+// システム診断と自動修復
+const diagnosis = AuditManager.diagnose();
+const autoFixResult = AuditManager.autoFix();
 ```
 
 ---
@@ -1472,6 +1493,13 @@ AuditManager.clearLogs();
 
 // または古いログを削除
 AuditManager.setConfig({ maxLogs: 1000 });
+
+// メモリ使用量を確認
+const memoryUsage = AuditManager.getMemoryUsage();
+console.log('メモリ使用量:', memoryUsage);
+
+// 積極的なクリーンアップを実行
+AuditManager.autoFix();
 ```
 
 #### 同期エラーが頻発している
@@ -1505,6 +1533,15 @@ AuditManager.getErrors({ since: '2024-01-01' });
 
 // システム診断レポートを生成
 AuditManager.diagnose();
+
+// メモリ使用量を確認
+const memoryUsage = AuditManager.getMemoryUsage();
+
+// エラー分析を実行
+const errorAnalysis = AuditManager.analyzeErrors();
+
+// 自動修復を実行
+const autoFixResult = AuditManager.autoFix();
 ```
 
 ---

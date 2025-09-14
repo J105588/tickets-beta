@@ -18,6 +18,12 @@ class AuditManager {
     this.logs = []; // ログ配列を初期化
     this.syncFailureCount = 0; // 同期失敗カウンターを初期化
     
+    // エラーモニタリング用のプロパティ
+    this.errorHandler = null;
+    this.rejectionHandler = null;
+    this.errorAnalysisInterval = null;
+    this.memoryCleanupInterval = null;
+    
     // エラー追跡システム
     this.errorTracker = {
       errors: [],
@@ -430,10 +436,96 @@ class AuditManager {
     }
   }
 
-  // 古いログをクリーンアップ
+  // 古いログをクリーンアップ（改良版）
   cleanupOldLogs() {
-    if (this.logs.length > this.maxLogs) {
-      this.logs = this.logs.slice(0, this.maxLogs);
+    try {
+      const originalLength = this.logs.length;
+      
+      if (originalLength > this.maxLogs) {
+        // 古いログを削除（新しいログを保持）
+        this.logs = this.logs.slice(0, this.maxLogs);
+        console.log(`[AuditManager] ログクリーンアップ: ${originalLength}件 → ${this.logs.length}件`);
+        
+        // 同期待ちのログもクリーンアップ
+        if (this.pendingLogs.length > this.maxLogs / 2) {
+          this.pendingLogs = this.pendingLogs.slice(0, Math.floor(this.maxLogs / 2));
+          console.log(`[AuditManager] 同期待ちログクリーンアップ: ${this.pendingLogs.length}件`);
+        }
+        
+        // ストレージに保存
+        this.saveLogs();
+      }
+      
+      // メモリ使用量の監視
+      this.monitorMemoryUsage();
+      
+    } catch (error) {
+      console.error('[AuditManager] ログクリーンアップエラー:', error);
+      // エラーが発生した場合は最小限のクリーンアップを実行
+      if (this.logs.length > this.maxLogs * 2) {
+        this.logs = this.logs.slice(0, this.maxLogs);
+        console.log('[AuditManager] 緊急ログクリーンアップを実行しました');
+      }
+    }
+  }
+
+  // メモリ使用量の監視
+  monitorMemoryUsage() {
+    try {
+      // ログデータのサイズを推定
+      const logsJson = JSON.stringify(this.logs);
+      const logsSizeKB = Math.round(logsJson.length / 1024);
+      
+      // 同期待ちログのサイズを推定
+      const pendingJson = JSON.stringify(this.pendingLogs);
+      const pendingSizeKB = Math.round(pendingJson.length / 1024);
+      
+      const totalSizeKB = logsSizeKB + pendingSizeKB;
+      
+      // メモリ使用量が大きすぎる場合は警告
+      if (totalSizeKB > 1024) { // 1MB以上
+        console.warn(`[AuditManager] メモリ使用量が大きくなっています: ${totalSizeKB}KB`);
+        
+        // 2MB以上の場合、より積極的なクリーンアップを実行
+        if (totalSizeKB > 2048) {
+          console.warn('[AuditManager] メモリ使用量が過大です。積極的なクリーンアップを実行します');
+          this.aggressiveCleanup();
+        }
+      }
+      
+      // デバッグ情報を出力
+      if (window.DEBUG_MODE) {
+        console.log(`[AuditManager] メモリ使用量: ログ ${logsSizeKB}KB, 同期待ち ${pendingSizeKB}KB, 合計 ${totalSizeKB}KB`);
+      }
+      
+    } catch (error) {
+      console.warn('[AuditManager] メモリ監視エラー:', error);
+    }
+  }
+
+  // 積極的なクリーンアップ
+  aggressiveCleanup() {
+    try {
+      // ログ数を半分に削減
+      const originalLogsCount = this.logs.length;
+      this.logs = this.logs.slice(0, Math.floor(this.maxLogs / 2));
+      
+      // 同期待ちログも削減
+      const originalPendingCount = this.pendingLogs.length;
+      this.pendingLogs = this.pendingLogs.slice(0, Math.floor(this.maxLogs / 4));
+      
+      // エラーログも削減
+      if (this.errorTracker.errors.length > 50) {
+        this.errorTracker.errors = this.errorTracker.errors.slice(0, 50);
+      }
+      
+      console.log(`[AuditManager] 積極的クリーンアップ完了: ログ ${originalLogsCount}→${this.logs.length}, 同期待ち ${originalPendingCount}→${this.pendingLogs.length}`);
+      
+      // ストレージに保存
+      this.saveLogs();
+      
+    } catch (error) {
+      console.error('[AuditManager] 積極的クリーンアップエラー:', error);
     }
   }
 
@@ -615,11 +707,18 @@ class AuditManager {
           finalValidLogs
         ]);
         
-        if (result && result.success) {
-          console.log(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} に ${finalValidLogs.length}件のログを同期`);
+        // レスポンスの詳細な検証
+        if (result && typeof result === 'object' && result.success === true) {
+          console.log(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} に ${finalValidLogs.length}件のログを同期成功`);
           // 成功時は失敗カウンターをリセット
           this.syncFailureCount = 0;
           this.lastSyncTime = Date.now();
+          
+          // 成功したログを同期待ちから削除
+          this.pendingLogs = this.pendingLogs.filter(pendingLog => 
+            !finalValidLogs.some(syncedLog => syncedLog.id === pendingLog.id)
+          );
+          
         } else {
           const errorMessage = result?.message || result?.error || '不明なエラー';
           console.warn(`[AuditManager] 監査ログ専用スプレッドシート ${auditLogSpreadsheetId} への同期失敗:`, errorMessage);
@@ -627,20 +726,29 @@ class AuditManager {
           // 失敗回数をカウント
           this.syncFailureCount = (this.syncFailureCount || 0) + 1;
           
-          // 連続失敗が3回未満の場合のみ再試行（5回から3回に短縮）
+          // 連続失敗が3回未満の場合のみ再試行
           if (this.syncFailureCount < 3) {
-            this.pendingLogs.unshift(...finalValidLogs);
-            console.log(`[AuditManager] 同期失敗回数: ${this.syncFailureCount}/3 - 再試行します`);
+            // 重複を避けて同期待ちに追加
+            const existingIds = new Set(this.pendingLogs.map(log => log.id));
+            const newLogs = finalValidLogs.filter(log => !existingIds.has(log.id));
+            this.pendingLogs.unshift(...newLogs);
+            console.log(`[AuditManager] 同期失敗回数: ${this.syncFailureCount}/3 - ${newLogs.length}件を再試行します`);
           } else {
             console.warn(`[AuditManager] 同期失敗回数が上限に達しました (${this.syncFailureCount}/3) - ログを破棄します`);
             // 失敗回数が上限に達した場合は、ログを破棄してアプリケーションの動作を継続
             this.syncFailureCount = 0; // リセット
-            // エラーを監査ログに記録
-            this.log('sync_failure_limit_reached', {
-              error: errorMessage,
-              failedLogsCount: finalValidLogs.length,
-              auditLogSpreadsheetId: auditLogSpreadsheetId
-            });
+            
+            // エラーを監査ログに記録（同期待ちに追加しない）
+            try {
+              this.log('sync_failure_limit_reached', {
+                error: errorMessage,
+                failedLogsCount: finalValidLogs.length,
+                auditLogSpreadsheetId: auditLogSpreadsheetId,
+                syncFailureCount: this.syncFailureCount
+              });
+            } catch (logError) {
+              console.error('[AuditManager] エラーログ記録に失敗:', logError);
+            }
           }
         }
       } catch (apiError) {
@@ -782,8 +890,11 @@ class AuditManager {
     }
   }
 
-  // GAS APIを呼び出す
+  // GAS APIを呼び出す（改良版）
   async callGASAPI(functionName, params = []) {
+    let script = null;
+    let timeoutId = null;
+    
     try {
       // デバッグ情報を出力
       console.log('[AuditManager] callGASAPI呼び出し:', {
@@ -799,7 +910,7 @@ class AuditManager {
       ];
       
       const apiUrl = apiUrls[0];
-      const callback = 'auditManagerCallback';
+      const callback = `auditManagerCallback_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
       // パラメータの検証とエンコード
       const safeParams = Array.isArray(params) ? params : [params];
@@ -820,35 +931,43 @@ class AuditManager {
       console.log('[AuditManager] クエリ文字列:', queryString);
       
       return new Promise((resolve, reject) => {
+        // コールバック関数を設定
         window[callback] = (response) => {
-          delete window[callback];
-          resolve(response);
+          // クリーンアップ
+          this.cleanupAPICall(callback, script, timeoutId);
+          
+          // レスポンスの検証
+          if (response && typeof response === 'object') {
+            resolve(response);
+          } else {
+            console.warn('[AuditManager] 無効なレスポンス:', response);
+            resolve({ success: false, error: '無効なレスポンス形式' });
+          }
         };
         
-        const script = document.createElement('script');
+        // スクリプト要素を作成
+        script = document.createElement('script');
         script.src = `${apiUrl}?${queryString}`;
-        script.onerror = () => {
-          delete window[callback];
-          // エラーをresolveで返して、呼び出し側で処理できるようにする
+        script.onerror = (error) => {
+          console.error('[AuditManager] スクリプト読み込みエラー:', error);
+          this.cleanupAPICall(callback, script, timeoutId);
           resolve({ success: false, error: `API呼び出しに失敗しました: ${functionName}` });
         };
         
+        // スクリプトを追加
         document.head.appendChild(script);
         
-        setTimeout(() => {
-          if (window[callback]) {
-            delete window[callback];
-            try {
-              document.head.removeChild(script);
-            } catch (e) {
-              // スクリプトが既に削除されている場合は無視
-            }
-            // タイムアウトもresolveで返して、呼び出し側で処理できるようにする
-            resolve({ success: false, error: 'API呼び出しがタイムアウトしました' });
-          }
-        }, 10000); // タイムアウトを10秒に短縮
+        // タイムアウト設定
+        timeoutId = setTimeout(() => {
+          console.warn('[AuditManager] API呼び出しタイムアウト:', functionName);
+          this.cleanupAPICall(callback, script, timeoutId);
+          resolve({ success: false, error: 'API呼び出しがタイムアウトしました' });
+        }, 15000); // タイムアウトを15秒に延長
       });
     } catch (error) {
+      // エラー発生時のクリーンアップ
+      this.cleanupAPICall(callback, script, timeoutId);
+      
       const errorId = this.errorTracker.addError(error, {
         phase: 'gas_api_call',
         functionName: functionName,
@@ -863,8 +982,31 @@ class AuditManager {
         functionName,
         params
       });
+      
       // エラーをthrowせずに、エラー情報を含むオブジェクトを返す
       return { success: false, error: `GAS API呼び出しエラー: ${error.message}`, errorId: errorId };
+    }
+  }
+
+  // API呼び出しのクリーンアップ
+  cleanupAPICall(callback, script, timeoutId) {
+    try {
+      // コールバック関数を削除
+      if (callback && window[callback]) {
+        delete window[callback];
+      }
+      
+      // タイムアウトをクリア
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      // スクリプト要素を削除
+      if (script && script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    } catch (error) {
+      console.warn('[AuditManager] クリーンアップエラー:', error);
     }
   }
 
@@ -1132,32 +1274,127 @@ class AuditManager {
     }
   }
 
-  // エラーモニタリングを開始
+  // エラーモニタリングを開始（改良版）
   startErrorMonitoring() {
-    // グローバルエラーハンドラーを設定
-    window.addEventListener('error', (event) => {
-      this.errorTracker.addError(event.error, {
-        phase: 'global_error',
-        filename: event.filename,
-        lineno: event.lineno,
-        colno: event.colno
-      });
-    });
+    try {
+      // 既存のイベントリスナーを削除（重複防止）
+      this.removeErrorListeners();
+      
+      // グローバルエラーハンドラーを設定
+      this.errorHandler = (event) => {
+        try {
+          this.errorTracker.addError(event.error, {
+            phase: 'global_error',
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('[AuditManager] エラーハンドラー内でエラー:', error);
+        }
+      };
 
-    // 未処理のPromise拒否をキャッチ
-    window.addEventListener('unhandledrejection', (event) => {
-      this.errorTracker.addError(new Error(event.reason), {
-        phase: 'unhandled_promise_rejection',
-        reason: event.reason
-      });
-    });
+      // 未処理のPromise拒否をキャッチ
+      this.rejectionHandler = (event) => {
+        try {
+          this.errorTracker.addError(new Error(event.reason), {
+            phase: 'unhandled_promise_rejection',
+            reason: event.reason,
+            timestamp: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('[AuditManager] Promise拒否ハンドラー内でエラー:', error);
+        }
+      };
 
-    // 定期的なエラー分析（5分間隔）
-    setInterval(() => {
-      this.performPeriodicErrorAnalysis();
-    }, 5 * 60 * 1000);
+      // イベントリスナーを追加
+      window.addEventListener('error', this.errorHandler);
+      window.addEventListener('unhandledrejection', this.rejectionHandler);
+
+      // 定期的なエラー分析（5分間隔）
+      if (this.errorAnalysisInterval) {
+        clearInterval(this.errorAnalysisInterval);
+      }
+      
+      this.errorAnalysisInterval = setInterval(() => {
+        try {
+          this.performPeriodicErrorAnalysis();
+        } catch (error) {
+          console.error('[AuditManager] 定期エラー分析でエラー:', error);
+        }
+      }, 5 * 60 * 1000);
+
+      // 定期的なメモリクリーンアップ（1分間隔）
+      if (this.memoryCleanupInterval) {
+        clearInterval(this.memoryCleanupInterval);
+      }
+      
+      this.memoryCleanupInterval = setInterval(() => {
+        try {
+          this.cleanupOldLogs();
+        } catch (error) {
+          console.error('[AuditManager] 定期メモリクリーンアップでエラー:', error);
+        }
+      }, 60 * 1000);
 
     console.log('[AuditManager] エラーモニタリングを開始しました');
+    
+  } catch (error) {
+    console.error('[AuditManager] エラーモニタリング開始エラー:', error);
+  }
+}
+
+// デストラクタ機能
+destroy() {
+  try {
+    console.log('[AuditManager] デストラクタを実行中...');
+    
+    // 自動同期を停止
+    this.stopAutoSync();
+    
+    // エラーモニタリングを停止
+    this.removeErrorListeners();
+    
+    // 最終的なログ保存
+    this.saveLogs();
+    
+    // メモリクリーンアップ
+    this.aggressiveCleanup();
+    
+    console.log('[AuditManager] デストラクタ完了');
+    
+  } catch (error) {
+    console.error('[AuditManager] デストラクタエラー:', error);
+  }
+}
+
+  // エラーリスナーを削除
+  removeErrorListeners() {
+    try {
+      if (this.errorHandler) {
+        window.removeEventListener('error', this.errorHandler);
+        this.errorHandler = null;
+      }
+      
+      if (this.rejectionHandler) {
+        window.removeEventListener('unhandledrejection', this.rejectionHandler);
+        this.rejectionHandler = null;
+      }
+      
+      if (this.errorAnalysisInterval) {
+        clearInterval(this.errorAnalysisInterval);
+        this.errorAnalysisInterval = null;
+      }
+      
+      if (this.memoryCleanupInterval) {
+        clearInterval(this.memoryCleanupInterval);
+        this.memoryCleanupInterval = null;
+      }
+      
+    } catch (error) {
+      console.warn('[AuditManager] エラーリスナー削除エラー:', error);
+    }
   }
 
   // 定期的なエラー分析
@@ -1324,8 +1561,30 @@ if (typeof window !== 'undefined') {
       return { success: true, message: 'エラーモニタリングを開始しました' };
     },
     stopMonitoring: () => {
-      // モニタリング停止（イベントリスナーは削除しない）
+      auditManager.removeErrorListeners();
       return { success: true, message: 'エラーモニタリングを停止しました' };
+    },
+    // デストラクタ機能
+    destroy: () => {
+      auditManager.destroy();
+      return { success: true, message: 'AuditManagerを破棄しました' };
+    },
+    // メモリ使用量確認
+    getMemoryUsage: () => {
+      try {
+        const logsJson = JSON.stringify(auditManager.logs);
+        const pendingJson = JSON.stringify(auditManager.pendingLogs);
+        const errorsJson = JSON.stringify(auditManager.errorTracker.errors);
+        
+        return {
+          logs: Math.round(logsJson.length / 1024),
+          pending: Math.round(pendingJson.length / 1024),
+          errors: Math.round(errorsJson.length / 1024),
+          total: Math.round((logsJson.length + pendingJson.length + errorsJson.length) / 1024)
+        };
+      } catch (error) {
+        return { error: error.message };
+      }
     }
   };
 }
