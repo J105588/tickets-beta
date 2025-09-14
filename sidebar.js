@@ -115,12 +115,14 @@ async function applyModeChange() {
         // 通常モードに戻る場合はパスワード検証をスキップ
         if (selectedMode === 'normal') {
             // 監査ログ：通常モードへの変更
-            auditManager.log('mode_change_to_normal', {
-                fromMode: localStorage.getItem('currentMode') || 'normal',
-                toMode: 'normal',
-                beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
-                afterData: { newMode: 'normal' }
-            });
+            if (window.auditManager) {
+                window.auditManager.log('mode_change_to_normal', {
+                    fromMode: localStorage.getItem('currentMode') || 'normal',
+                    toMode: 'normal',
+                    beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
+                    afterData: { newMode: 'normal' }
+                });
+            }
 
             localStorage.setItem('currentMode', selectedMode);
             updateModeDisplay();
@@ -141,12 +143,14 @@ async function applyModeChange() {
 
         if (result.success) {
             // 監査ログ：モード変更成功
-            auditManager.log('mode_change_success', {
-                fromMode: localStorage.getItem('currentMode') || 'normal',
-                toMode: selectedMode,
-                beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
-                afterData: { newMode: selectedMode }
-            });
+            if (window.auditManager) {
+                window.auditManager.log('mode_change_success', {
+                    fromMode: localStorage.getItem('currentMode') || 'normal',
+                    toMode: selectedMode,
+                    beforeData: { previousMode: localStorage.getItem('currentMode') || 'normal' },
+                    afterData: { newMode: selectedMode }
+                });
+            }
 
             localStorage.setItem('currentMode', selectedMode); // 現在のモードを保存
             updateModeDisplay(); // 表示を更新

@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="監査ログテスト">
+    <title>監査ログシステム テストページ</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        
+        .section h2 {
+            color: #34495e;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+        
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-info { background: #17a2b8; color: white; }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .log-display {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            border: 1px solid #bee5eb;
+        }
+
+        /* モバイル対応 */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                padding: 15px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+                margin-bottom: 20px;
+            }
+
+            .section h2 {
+                font-size: 1.2em;
+            }
+
+            .button-group {
+                flex-direction: column;
+            }
+
+            .btn {
+                width: 100%;
+                margin-bottom: 10px;
+                font-size: 16px; /* iOS のズーム防止 */
+                min-height: 44px; /* タッチターゲットの最小サイズ */
+            }
+
+            .form-group input,
+            .form-group select,
+            .form-group textarea {
+                font-size: 16px; /* iOS のズーム防止 */
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+
+            .stat-card {
+                padding: 10px;
+            }
+
+            .stat-value {
+                font-size: 1.5em;
+            }
+
+            .log-display {
+                font-size: 11px;
+                max-height: 200px;
+            }
+        }
+
+        /* iPad 対応 */
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .button-group {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        /* タッチデバイス用のスタイル */
+        @media (hover: none) and (pointer: coarse) {
+            .btn:hover {
+                transform: none;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 監査ログシステム テストページ</h1>
+        
+        <!-- 接続状態 -->
+        <div class="section">
+            <h2>接続状態</h2>
+            <div id="connectionStatus" class="status disconnected">
+                サーバーに接続中...
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="checkConnection()">接続確認</button>
+                <button class="btn btn-warning" onclick="reconnect()">再接続</button>
+            </div>
+        </div>
+        
+        <!-- 統計情報 -->
+        <div class="section">
+            <h2>統計情報</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalLogs">0</div>
+                    <div class="stat-label">総ログ数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="syncedLogs">0</div>
+                    <div class="stat-label">同期済み</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="pendingLogs">0</div>
+                    <div class="stat-label">未同期</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="errorLogs">0</div>
+                    <div class="stat-label">エラー数</div>
+                </div>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-info" onclick="updateStats()">統計更新</button>
+                <button class="btn btn-success" onclick="forceSync()">手動同期</button>
+            </div>
+        </div>
+        
+        <!-- ログ記録テスト -->
+        <div class="section">
+            <h2>ログ記録テスト</h2>
+            <div class="form-group">
+                <label for="operationType">操作タイプ:</label>
+                <select id="operationType">
+                    <option value="seat_reservation">座席予約</option>
+                    <option value="checkin">チェックイン</option>
+                    <option value="walkin_ticket">当日券発行</option>
+                    <option value="seat_edit">座席編集</option>
+                    <option value="mode_change">モード変更</option>
+                    <option value="user_action">ユーザーアクション</option>
+                    <option value="system_event">システムイベント</option>
+                    <option value="data_change">データ変更</option>
+                    <option value="javascript_error">JavaScriptエラー</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="logDetails">詳細情報 (JSON):</label>
+                <textarea id="logDetails" placeholder='{"message": "テストログ", "data": {"id": 123}}'></textarea>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="testLog()">ログ記録</button>
+                <button class="btn btn-warning" onclick="testErrorLog()">エラーログ記録</button>
+                <button class="btn btn-danger" onclick="testMultipleLogs()">複数ログ記録</button>
+            </div>
+        </div>
+        
+        <!-- シミュレーション -->
+        <div class="section">
+            <h2>システムシミュレーション</h2>
+            <div class="button-group">
+                <button class="btn btn-success" onclick="simulateSeatReservation()">座席予約シミュレーション</button>
+                <button class="btn btn-info" onclick="simulateCheckin()">チェックインシミュレーション</button>
+                <button class="btn btn-warning" onclick="simulateWalkinTicket()">当日券発行シミュレーション</button>
+                <button class="btn btn-primary" onclick="simulateModeChange()">モード変更シミュレーション</button>
+            </div>
+        </div>
+        
+        <!-- ログ表示 -->
+        <div class="section">
+            <h2>ログ表示</h2>
+            <div class="button-group">
+                <button class="btn btn-info" onclick="showRecentLogs()">最近のログ表示</button>
+                <button class="btn btn-warning" onclick="clearLogDisplay()">ログクリア</button>
+            </div>
+            <div id="logDisplay" class="log-display">ログが表示されます...</div>
+        </div>
+        
+        <!-- 設定 -->
+        <div class="section">
+            <h2>設定</h2>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="enableAudit" checked> 監査ログを有効にする
+                </label>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="enableAutoSync" checked> 自動同期を有効にする
+                </label>
+            </div>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="updateSettings()">設定更新</button>
+                <button class="btn btn-info" onclick="resetSettings()">設定リセット</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 監査ログシステムの読み込み -->
+    <script src="audit-client.js"></script>
+    <script src="audit-integration.js"></script>
+    
+    <script>
+        // テスト用のグローバル変数
+        window.currentSpreadsheetId = 'test-spreadsheet-123';
+        window.currentGroup = 'テストグループ';
+        window.currentDay = '1';
+        window.currentTimeslot = 'A';
+        window.currentMode = 'normal';
+        window.isDemoMode = false;
+        window.demoGroup = null;
+        
+        // テスト用のデータ
+        window.seatsData = {
+            'seat-1': { id: 'seat-1', number: 'A1', status: 'available', group: 'テストグループ' },
+            'seat-2': { id: 'seat-2', number: 'A2', status: 'reserved', group: 'テストグループ' }
+        };
+        
+        window.walkinData = {
+            'ticket-1': { id: 'ticket-1', number: 'W001', status: 'issued', group: 'テストグループ' }
+        };
+
+        // テスト関数
+        function checkConnection() {
+            const status = document.getElementById('connectionStatus');
+            if (window.auditClient && window.auditClient.isServerConnected()) {
+                status.textContent = 'サーバーに接続済み';
+                status.className = 'status connected';
+            } else {
+                status.textContent = 'サーバーに接続されていません';
+                status.className = 'status disconnected';
+            }
+        }
+
+        function reconnect() {
+            if (window.auditClient) {
+                window.auditClient.connectToServer().then(() => {
+                    checkConnection();
+                    showMessage('再接続しました', 'success');
+                }).catch(error => {
+                    showMessage('再接続に失敗しました: ' + error.message, 'error');
+                });
+            }
+        }
+
+        function updateStats() {
+            if (window.auditClient) {
+                window.auditClient.getStats().then(stats => {
+                    document.getElementById('totalLogs').textContent = stats.total;
+                    document.getElementById('syncedLogs').textContent = stats.synced;
+                    document.getElementById('pendingLogs').textContent = stats.pending;
+                    document.getElementById('errorLogs').textContent = stats.errors;
+                });
+            }
+        }
+
+        function forceSync() {
+            if (window.auditClient) {
+                window.auditClient.forceSync().then(() => {
+                    showMessage('手動同期を実行しました', 'success');
+                    updateStats();
+                }).catch(error => {
+                    showMessage('同期に失敗しました: ' + error.message, 'error');
+                });
+            }
+        }
+
+        function testLog() {
+            const operation = document.getElementById('operationType').value;
+            const detailsText = document.getElementById('logDetails').value;
+            
+            let details = {};
+            try {
+                if (detailsText.trim()) {
+                    details = JSON.parse(detailsText);
+                }
+            } catch (error) {
+                showMessage('JSON形式が正しくありません', 'error');
+                return;
+            }
+            
+            if (window.auditClient) {
+                window.auditClient.log(operation, details);
+                showMessage(`ログを記録しました: ${operation}`, 'success');
+                updateStats();
+            }
+        }
+
+        function testErrorLog() {
+            const operation = document.getElementById('operationType').value;
+            const details = {
+                error: 'テストエラー',
+                stackTrace: 'Error: テストエラー\n    at testErrorLog (test.html:123:45)',
+                message: 'これはテスト用のエラーログです'
+            };
+            
+            if (window.auditClient) {
+                window.auditClient.log(operation, details);
+                showMessage(`エラーログを記録しました: ${operation}`, 'success');
+                updateStats();
+            }
+        }
+
+        function testMultipleLogs() {
+            const operations = [
+                'seat_reservation',
+                'checkin',
+                'walkin_ticket',
+                'seat_edit',
+                'mode_change'
+            ];
+            
+            operations.forEach((operation, index) => {
+                setTimeout(() => {
+                    if (window.auditClient) {
+                        window.auditClient.log(operation, {
+                            message: `テストログ ${index + 1}`,
+                            timestamp: new Date().toISOString(),
+                            data: { id: index + 1 }
+                        });
+                    }
+                }, index * 100);
+            });
+            
+            showMessage('複数ログを記録しました', 'success');
+            setTimeout(updateStats, 1000);
+        }
+
+        function simulateSeatReservation() {
+            if (window.auditClient) {
+                window.auditClient.log('seat_reservation', {
+                    seatId: 'A1',
+                    seatNumber: 'A1',
+                    group: 'テストグループ',
+                    day: '1',
+                    timeslot: 'A',
+                    beforeData: { status: 'available' },
+                    afterData: { status: 'reserved', reservedBy: 'テストユーザー' }
+                });
+                showMessage('座席予約シミュレーションを実行しました', 'success');
+                updateStats();
+            }
+        }
+
+        function simulateCheckin() {
+            if (window.auditClient) {
+                window.auditClient.log('checkin', {
+                    seatId: 'A1',
+                    seatNumber: 'A1',
+                    group: 'テストグループ',
+                    day: '1',
+                    timeslot: 'A',
+                    beforeData: { status: 'reserved' },
+                    afterData: { status: 'checked_in', checkedInAt: new Date().toISOString() }
+                });
+                showMessage('チェックインシミュレーションを実行しました', 'success');
+                updateStats();
+            }
+        }
+
+        function simulateWalkinTicket() {
+            if (window.auditClient) {
+                window.auditClient.log('walkin_ticket', {
+                    ticketId: 'W001',
+                    ticketNumber: 'W001',
+                    group: 'テストグループ',
+                    day: '1',
+                    timeslot: 'A',
+                    beforeData: null,
+                    afterData: { status: 'issued', issuedAt: new Date().toISOString() }
+                });
+                showMessage('当日券発行シミュレーションを実行しました', 'success');
+                updateStats();
+            }
+        }
+
+        function simulateModeChange() {
+            if (window.auditClient) {
+                window.auditClient.log('mode_change', {
+                    fromMode: 'normal',
+                    toMode: 'demo',
+                    beforeData: { mode: 'normal', isDemo: false },
+                    afterData: { mode: 'demo', isDemo: true }
+                });
+                showMessage('モード変更シミュレーションを実行しました', 'success');
+                updateStats();
+            }
+        }
+
+        function showRecentLogs() {
+            // 最近のログを表示（実装に応じて調整）
+            const logDisplay = document.getElementById('logDisplay');
+            logDisplay.textContent = '最近のログを取得中...';
+            
+            // 実際の実装では、サーバーからログを取得
+            setTimeout(() => {
+                logDisplay.textContent = 'ログ表示機能は実装中です...';
+            }, 1000);
+        }
+
+        function clearLogDisplay() {
+            document.getElementById('logDisplay').textContent = 'ログが表示されます...';
+        }
+
+        function updateSettings() {
+            const enableAudit = document.getElementById('enableAudit').checked;
+            const enableAutoSync = document.getElementById('enableAutoSync').checked;
+            
+            if (window.auditClient) {
+                window.auditClient.isEnabled = enableAudit;
+                window.auditClient.autoSync = enableAutoSync;
+                
+                if (enableAutoSync) {
+                    window.auditClient.startAutoSync();
+                } else {
+                    window.auditClient.stopAutoSync();
+                }
+            }
+            
+            showMessage('設定を更新しました', 'success');
+        }
+
+        function resetSettings() {
+            document.getElementById('enableAudit').checked = true;
+            document.getElementById('enableAutoSync').checked = true;
+            updateSettings();
+        }
+
+        function showMessage(message, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            
+            const container = document.querySelector('.container');
+            container.insertBefore(messageDiv, container.firstChild);
+            
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 3000);
+        }
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', () => {
+            // 接続状態を確認
+            setTimeout(checkConnection, 2000);
+            
+            // 統計情報を更新
+            setTimeout(updateStats, 3000);
+            
+            // 定期的に接続状態と統計を更新
+            setInterval(() => {
+                checkConnection();
+                updateStats();
+            }, 10000);
+        });
+    </script>
+</body>
+</html>

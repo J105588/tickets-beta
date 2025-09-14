@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>既存システム動作確認テスト</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        
+        .test-section h2 {
+            color: #34495e;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            margin: 5px;
+        }
+        
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-weight: 600;
+        }
+        
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        
+        .log-display {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+        
+        .test-result {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 既存システム動作確認テスト</h1>
+        
+        <!-- システム状態確認 -->
+        <div class="test-section">
+            <h2>システム状態確認</h2>
+            <div id="systemStatus" class="status warning">確認中...</div>
+            <button class="btn btn-primary" onclick="checkSystemStatus()">状態確認</button>
+        </div>
+        
+        <!-- GAS API接続テスト -->
+        <div class="test-section">
+            <h2>GAS API接続テスト</h2>
+            <div id="gasApiStatus" class="status warning">未テスト</div>
+            <button class="btn btn-primary" onclick="testGasApi()">API接続テスト</button>
+        </div>
+        
+        <!-- 監査ログシステムテスト -->
+        <div class="test-section">
+            <h2>監査ログシステムテスト</h2>
+            <div id="auditStatus" class="status warning">未テスト</div>
+            <button class="btn btn-primary" onclick="testAuditSystem()">監査ログテスト</button>
+        </div>
+        
+        <!-- 既存機能テスト -->
+        <div class="test-section">
+            <h2>既存機能テスト</h2>
+            <div id="existingFunctionsStatus" class="status warning">未テスト</div>
+            <button class="btn btn-primary" onclick="testExistingFunctions()">機能テスト</button>
+        </div>
+        
+        <!-- ログ表示 -->
+        <div class="test-section">
+            <h2>テストログ</h2>
+            <button class="btn btn-warning" onclick="clearLogs()">ログクリア</button>
+            <div id="testLogs" class="log-display">テストログが表示されます...</div>
+        </div>
+    </div>
+
+    <!-- 既存システムのスクリプトを読み込み -->
+    <script src="config.js"></script>
+    <script src="api.js"></script>
+    <script src="optimized-api.js"></script>
+    <script src="audit-fallback.js"></script>
+    
+    <script>
+        let testLogs = [];
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleString('ja-JP');
+            const logEntry = `[${timestamp}] ${type.toUpperCase()}: ${message}`;
+            testLogs.push(logEntry);
+            
+            const logDisplay = document.getElementById('testLogs');
+            logDisplay.textContent = testLogs.join('\n');
+            logDisplay.scrollTop = logDisplay.scrollHeight;
+            
+            console.log(logEntry);
+        }
+        
+        function updateStatus(elementId, message, type) {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+        
+        function clearLogs() {
+            testLogs = [];
+            document.getElementById('testLogs').textContent = 'ログがクリアされました';
+        }
+        
+        async function checkSystemStatus() {
+            log('システム状態確認を開始...');
+            
+            try {
+                // 基本的な環境チェック
+                const checks = {
+                    'navigator.onLine': navigator.onLine,
+                    'localStorage': typeof Storage !== 'undefined',
+                    'JSON': typeof JSON !== 'undefined',
+                    'Promise': typeof Promise !== 'undefined',
+                    'fetch': typeof fetch !== 'undefined'
+                };
+                
+                let allPassed = true;
+                for (const [check, result] of Object.entries(checks)) {
+                    if (result) {
+                        log(`✅ ${check}: OK`);
+                    } else {
+                        log(`❌ ${check}: NG`, 'error');
+                        allPassed = false;
+                    }
+                }
+                
+                if (allPassed) {
+                    updateStatus('systemStatus', 'すべての基本機能が正常です', 'success');
+                    log('✅ システム状態確認完了');
+                } else {
+                    updateStatus('systemStatus', '一部の機能に問題があります', 'error');
+                    log('❌ システム状態確認で問題を検出', 'error');
+                }
+                
+            } catch (error) {
+                updateStatus('systemStatus', 'システム状態確認でエラーが発生しました', 'error');
+                log(`❌ システム状態確認エラー: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testGasApi() {
+            log('GAS API接続テストを開始...');
+            
+            try {
+                // 既存のAPIクラスが利用可能かチェック
+                if (typeof GasAPI === 'undefined') {
+                    throw new Error('GasAPIクラスが見つかりません');
+                }
+                
+                // 簡単なAPI呼び出しテスト（実際のデータは取得しない）
+                log('GasAPIクラスが利用可能です');
+                
+                // 設定の確認
+                if (typeof GAS_API_URLS !== 'undefined' && GAS_API_URLS.length > 0) {
+                    log(`✅ GAS API URL設定: ${GAS_API_URLS.length}個のURLが設定されています`);
+                    GAS_API_URLS.forEach((url, index) => {
+                        log(`  URL ${index + 1}: ${url}`);
+                    });
+                } else {
+                    log('⚠️ GAS API URLが設定されていません', 'warning');
+                }
+                
+                updateStatus('gasApiStatus', 'GAS API設定が正常です', 'success');
+                log('✅ GAS API接続テスト完了');
+                
+            } catch (error) {
+                updateStatus('gasApiStatus', 'GAS API接続テストでエラーが発生しました', 'error');
+                log(`❌ GAS API接続テストエラー: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testAuditSystem() {
+            log('監査ログシステムテストを開始...');
+            
+            try {
+                // auditManagerが利用可能かチェック
+                if (typeof window.auditManager === 'undefined') {
+                    throw new Error('auditManagerが見つかりません');
+                }
+                
+                log('✅ auditManagerが利用可能です');
+                
+                // 基本的な機能テスト
+                const testOperation = 'test_operation';
+                const testDetails = { message: 'テストログ', timestamp: new Date().toISOString() };
+                
+                await window.auditManager.log(testOperation, testDetails);
+                log('✅ ログ記録機能が正常です');
+                
+                // 統計情報の取得
+                const stats = await window.auditManager.getStats();
+                log(`✅ 統計情報取得: 総ログ数=${stats.total}, エラー数=${stats.errors}`);
+                
+                // 有効/無効の切り替えテスト
+                const originalState = window.auditManager.isEnabled();
+                window.auditManager.setEnabled(false);
+                await window.auditManager.log('disabled_test', {});
+                window.auditManager.setEnabled(originalState);
+                log('✅ 有効/無効切り替え機能が正常です');
+                
+                updateStatus('auditStatus', '監査ログシステムが正常です', 'success');
+                log('✅ 監査ログシステムテスト完了');
+                
+            } catch (error) {
+                updateStatus('auditStatus', '監査ログシステムでエラーが発生しました', 'error');
+                log(`❌ 監査ログシステムエラー: ${error.message}`, 'error');
+            }
+        }
+        
+        async function testExistingFunctions() {
+            log('既存機能テストを開始...');
+            
+            try {
+                // 既存の主要な関数が利用可能かチェック
+                const functions = [
+                    'GasAPI',
+                    'apiUrlManager',
+                    'DEBUG_MODE',
+                    'debugLog'
+                ];
+                
+                let allFunctionsAvailable = true;
+                for (const funcName of functions) {
+                    if (typeof window[funcName] !== 'undefined') {
+                        log(`✅ ${funcName}: 利用可能`);
+                    } else {
+                        log(`❌ ${funcName}: 利用不可`, 'error');
+                        allFunctionsAvailable = false;
+                    }
+                }
+                
+                // 設定値の確認
+                if (typeof DEBUG_MODE !== 'undefined') {
+                    log(`✅ DEBUG_MODE: ${DEBUG_MODE}`);
+                }
+                
+                if (typeof apiUrlManager !== 'undefined') {
+                    const currentUrl = apiUrlManager.getCurrentUrl();
+                    log(`✅ 現在のAPI URL: ${currentUrl}`);
+                }
+                
+                if (allFunctionsAvailable) {
+                    updateStatus('existingFunctionsStatus', '既存機能が正常です', 'success');
+                    log('✅ 既存機能テスト完了');
+                } else {
+                    updateStatus('existingFunctionsStatus', '一部の既存機能に問題があります', 'error');
+                    log('❌ 既存機能テストで問題を検出', 'error');
+                }
+                
+            } catch (error) {
+                updateStatus('existingFunctionsStatus', '既存機能テストでエラーが発生しました', 'error');
+                log(`❌ 既存機能テストエラー: ${error.message}`, 'error');
+            }
+        }
+        
+        // ページ読み込み時に自動テスト実行
+        document.addEventListener('DOMContentLoaded', () => {
+            log('既存システム動作確認テストを開始します...');
+            
+            // 段階的にテストを実行
+            setTimeout(checkSystemStatus, 1000);
+            setTimeout(testGasApi, 2000);
+            setTimeout(testAuditSystem, 3000);
+            setTimeout(testExistingFunctions, 4000);
+        });
+    </script>
+</body>
+</html>

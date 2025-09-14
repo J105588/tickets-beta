@@ -1,11 +1,12 @@
 // config.js
 // 複数のAPI URL（使用数上限回避のため分散）
 const GAS_API_URLS = [
-  //jxjin2010@gmail.com
-  "https://script.google.com/macros/s/AKfycbwaVq7EJLvYP0ekC9B3wBZdizlCrx-03TFYDMrOUOG0Bev-0AFHJbVwr_YE4WgME6jS/exec"
+  // 新しいAPI URL（最適化版）
+  "https://script.google.com/macros/s/AKfycbzk9CsyfxxwwWrcwHNiwGebJ3yFuJ3G0R_Tglsc1__PIYjV0Q1rmFZWTyRCDFIFnwi-/exec"
 ];
 
 // 監査ログ専用スプレッドシートID（すべての監査ログを一元管理）
+// 注意: 既存システムの動作を最優先に、監査ログはフォールバック機能を使用
 const AUDIT_LOG_SPREADSHEET_ID = "1ZGQ5BTNW_pTDuMvbZgla2B_soisdvtCM2UrnVi_L-5c";
 
 // URL選択とローテーション管理
