@@ -3,6 +3,9 @@
 // ===============================================================
 
 function doPost(e) {
+  console.log('=== doPost ENTRY ===');
+  console.log('doPost timestamp:', new Date().toISOString());
+  console.log('doPost e:', e);
   let response;
   let callback = e.parameter.callback; // コールバック関数名を取得
 
@@ -27,6 +30,16 @@ function doPost(e) {
       parameterKeys: e.parameter ? Object.keys(e.parameter) : 'none',
       postDataContents: e.postData ? e.postData.contents : 'none'
     });
+    console.log('doPost called at:', new Date().toISOString());
+    console.log('doPost method:', e.method);
+    console.log('doPost queryString:', e.queryString);
+    
+    // syncAuditLogsToSpreadsheet関数の特別なログ
+    if (e.parameter && e.parameter.func === 'syncAuditLogsToSpreadsheet') {
+      console.log('doPost: syncAuditLogsToSpreadsheet function detected in doPost!');
+      console.log('doPost: This should not happen for JSONP requests!');
+      console.log('doPost: syncAuditLogsToSpreadsheet parameters:', e.parameter);
+    }
     
     // JSONPリクエストの場合はe.parameterから取得
     let funcName, funcParams;
@@ -56,10 +69,26 @@ function doPost(e) {
           funcParams = [paramsParam];
         }
       } else {
+        // paramsパラメータがない場合、個別パラメータを探す
         funcParams = [];
+        let paramIndex = 0;
+        while (e.parameter[`param${paramIndex}`] !== undefined) {
+          try {
+            const param = JSON.parse(decodeURIComponent(e.parameter[`param${paramIndex}`]));
+            funcParams.push(param);
+          } catch (e) {
+            funcParams.push(e.parameter[`param${paramIndex}`]);
+          }
+          paramIndex++;
+        }
       }
       
       console.log('JSONP request - funcName:', funcName, 'paramsParam:', paramsParam, 'funcParams:', funcParams);
+      console.log('e.parameter keys:', Object.keys(e.parameter));
+      console.log('e.parameter.params type:', typeof e.parameter.params, 'isArray:', Array.isArray(e.parameter.params));
+      console.log('e.parameter.params value:', e.parameter.params);
+      console.log('funcParams type:', typeof funcParams, 'isArray:', Array.isArray(funcParams));
+      console.log('funcParams length:', funcParams ? funcParams.length : 'undefined');
     } else if (e.postData && e.postData.contents) {
       // POSTリクエストの場合
       const body = e.postData.contents;
@@ -123,6 +152,32 @@ function doPost(e) {
       });
       
       console.log('Final parameters for', funcName, ':', finalParams);
+      console.log('Final parameters type:', typeof finalParams, 'isArray:', Array.isArray(finalParams));
+      
+      // syncAuditLogsToSpreadsheet関数の特別な処理
+      if (funcName === 'syncAuditLogsToSpreadsheet') {
+        console.log('syncAuditLogsToSpreadsheet special handling:', {
+          finalParamsLength: finalParams.length,
+          firstParam: finalParams[0],
+          secondParam: finalParams[1],
+          firstParamType: typeof finalParams[0],
+          secondParamType: typeof finalParams[1],
+          secondParamIsArray: Array.isArray(finalParams[1]),
+          allFinalParams: finalParams,
+          finalParamsStringified: JSON.stringify(finalParams)
+        });
+        
+        // パラメータの詳細検証
+        if (finalParams.length !== 2) {
+          console.error('syncAuditLogsToSpreadsheet: パラメータ数が不正です。期待値: 2, 実際: ' + finalParams.length);
+        }
+        if (typeof finalParams[0] !== 'string') {
+          console.error('syncAuditLogsToSpreadsheet: 第1パラメータが文字列ではありません: ' + typeof finalParams[0]);
+        }
+        if (!Array.isArray(finalParams[1])) {
+          console.error('syncAuditLogsToSpreadsheet: 第2パラメータが配列ではありません: ' + typeof finalParams[1]);
+        }
+      }
       
       try {
         response = functionMap[funcName].apply(null, finalParams);
@@ -187,12 +242,24 @@ function doPost(e) {
  * POSTリクエストと同様に関数呼び出しを処理する。
  */
 function doGet(e) {
+  console.log('=== doGet ENTRY ===');
+  console.log('doGet timestamp:', new Date().toISOString());
+  console.log('doGet e:', e);
   let response;
   let callback = e.parameter.callback; // コールバック関数名を取得
 
   // デバッグ用ログ
   console.log('doGet called with parameters:', e.parameter);
   console.log('doGet called with query string:', e.queryString);
+  console.log('doGet called with method:', e.parameter.method || 'GET');
+  console.log('doGet called at:', new Date().toISOString());
+  console.log('doGet method:', e.method);
+  
+  // syncAuditLogsToSpreadsheet関数の特別なログ
+  if (e.parameter && e.parameter.func === 'syncAuditLogsToSpreadsheet') {
+    console.log('doGet: syncAuditLogsToSpreadsheet function detected in doGet!');
+    console.log('doGet: syncAuditLogsToSpreadsheet parameters:', e.parameter);
+  }
 
   try {
     const funcName = e.parameter.func;
@@ -221,9 +288,57 @@ function doGet(e) {
       };
     } else {
       // パラメータを解析
-      const funcParams = paramsStr ? JSON.parse(decodeURIComponent(paramsStr)) : [];
+      let funcParams;
+      
+      // 複数のparamsパラメータを処理
+      const paramsParam = e.parameter.params;
+      
+      if (Array.isArray(paramsParam)) {
+        // 複数のparamsパラメータがある場合
+        funcParams = paramsParam.map(param => {
+          try {
+            return JSON.parse(decodeURIComponent(param));
+          } catch (e) {
+            return param;
+          }
+        });
+      } else if (paramsParam) {
+        // 単一のparamsパラメータの場合
+        try {
+          const parsed = JSON.parse(decodeURIComponent(paramsParam));
+          funcParams = Array.isArray(parsed) ? parsed : [parsed];
+        } catch (e) {
+          funcParams = [paramsParam];
+        }
+      } else {
+        // paramsパラメータがない場合、個別パラメータを探す
+        funcParams = [];
+        let paramIndex = 0;
+        while (e.parameter[`param${paramIndex}`] !== undefined) {
+          try {
+            const param = JSON.parse(decodeURIComponent(e.parameter[`param${paramIndex}`]));
+            funcParams.push(param);
+          } catch (e) {
+            funcParams.push(e.parameter[`param${paramIndex}`]);
+          }
+          paramIndex++;
+        }
+      }
       
       console.log('doGet: 関数呼び出し', { funcName, funcParams });
+      console.log('doGet: e.parameter keys:', Object.keys(e.parameter));
+      console.log('doGet: e.parameter.params type:', typeof e.parameter.params, 'isArray:', Array.isArray(e.parameter.params));
+      console.log('doGet: e.parameter.params value:', e.parameter.params);
+      
+      // syncAuditLogsToSpreadsheet関数の特別なログ
+      if (funcName === 'syncAuditLogsToSpreadsheet') {
+        console.log('doGet: syncAuditLogsToSpreadsheet detected!', {
+          funcParams,
+          funcParamsType: typeof funcParams,
+          funcParamsIsArray: Array.isArray(funcParams),
+          funcParamsLength: funcParams ? funcParams.length : 'undefined'
+        });
+      }
       
       const functionMap = {
         'getSeatData': getSeatData,
@@ -251,7 +366,72 @@ function doGet(e) {
       };
 
       if (functionMap[funcName]) {
-        response = functionMap[funcName].apply(null, funcParams);
+        // パラメータの最終検証と修正
+        let finalParams = funcParams;
+        
+        // funcParamsが配列でない場合は配列に変換
+        if (!Array.isArray(finalParams)) {
+          finalParams = [finalParams];
+        }
+        
+        // 各パラメータの型をチェック
+        finalParams = finalParams.map(param => {
+          if (param === null || param === undefined) {
+            return null;
+          }
+          return param;
+        });
+        
+        console.log('doGet: Final parameters for', funcName, ':', finalParams);
+        console.log('doGet: Final parameters type:', typeof finalParams, 'isArray:', Array.isArray(finalParams));
+        
+        // syncAuditLogsToSpreadsheet関数の特別な処理
+        if (funcName === 'syncAuditLogsToSpreadsheet') {
+          console.log('doGet: syncAuditLogsToSpreadsheet special handling:', {
+            finalParamsLength: finalParams.length,
+            firstParam: finalParams[0],
+            secondParam: finalParams[1],
+            firstParamType: typeof finalParams[0],
+            secondParamType: typeof finalParams[1],
+            secondParamIsArray: Array.isArray(finalParams[1]),
+            allFinalParams: finalParams,
+            finalParamsStringified: JSON.stringify(finalParams)
+          });
+          
+          // パラメータの詳細検証
+          if (finalParams.length !== 2) {
+            console.error('doGet: syncAuditLogsToSpreadsheet: パラメータ数が不正です。期待値: 2, 実際: ' + finalParams.length);
+          }
+          if (typeof finalParams[0] !== 'string') {
+            console.error('doGet: syncAuditLogsToSpreadsheet: 第1パラメータが文字列ではありません: ' + typeof finalParams[0]);
+          }
+          if (!Array.isArray(finalParams[1])) {
+            console.error('doGet: syncAuditLogsToSpreadsheet: 第2パラメータが配列ではありません: ' + typeof finalParams[1]);
+          }
+        }
+        
+        try {
+          response = functionMap[funcName].apply(null, finalParams);
+        } catch (applyError) {
+          console.error('doGet: Function apply error:', applyError);
+          console.error('doGet: Function:', funcName, 'Params:', finalParams);
+          console.error('doGet: Error stack:', applyError.stack);
+          
+          // エラー詳細をログに記録
+          Logger.log(`doGet Function Apply Error - Function: ${funcName}, Error: ${applyError.message}, Stack: ${applyError.stack}, Params: ${JSON.stringify(finalParams)}`);
+          
+          response = { 
+            success: false, 
+            message: `関数実行エラー: ${applyError.message}`,
+            error: {
+              name: applyError.name,
+              message: applyError.message,
+              stack: applyError.stack,
+              function: funcName,
+              params: finalParams
+            }
+          };
+        }
       } else {
         throw new Error("無効な関数名です: " + funcName);
       }
@@ -1395,6 +1575,7 @@ function execDangerCommand(action, payload, password) {
 function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
   try {
     // デバッグログを追加
+    console.log('syncAuditLogsToSpreadsheet called at:', new Date().toISOString());
     console.log('syncAuditLogsToSpreadsheet called with:', {
       spreadsheetId: spreadsheetId,
       spreadsheetIdType: typeof spreadsheetId,
@@ -1404,6 +1585,7 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
       logsFirstItem: logs && logs.length > 0 ? logs[0] : 'none',
       allArgs: arguments
     });
+    console.log('syncAuditLogsToSpreadsheet function entry point reached!');
     
     // パラメータの正規化
     let normalizedSpreadsheetId = spreadsheetId;
@@ -1433,7 +1615,11 @@ function syncAuditLogsToSpreadsheet(spreadsheetId, logs) {
       spreadsheetId: normalizedSpreadsheetId,
       logsType: typeof normalizedLogs,
       logsIsArray: Array.isArray(normalizedLogs),
-      logsLength: normalizedLogs ? normalizedLogs.length : 'undefined'
+      logsLength: normalizedLogs ? normalizedLogs.length : 'undefined',
+      originalSpreadsheetId: spreadsheetId,
+      originalLogs: logs,
+      originalLogsType: typeof logs,
+      originalLogsIsArray: Array.isArray(logs)
     });
     
     if (!normalizedSpreadsheetId) {

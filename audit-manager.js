@@ -120,7 +120,16 @@ class AuditManager {
       // 自動同期を開始
       if (this.autoSync) {
         this.startAutoSync();
-        console.log('[AuditManager] 自動同期を開始しました');
+        console.log('[AuditManager] 自動同期を開始しました', {
+          autoSync: this.autoSync,
+          syncInterval: this.syncInterval,
+          pendingLogsLength: this.pendingLogs.length
+        });
+      } else {
+        console.log('[AuditManager] 自動同期は無効です', {
+          autoSync: this.autoSync,
+          pendingLogsLength: this.pendingLogs.length
+        });
       }
       
       console.log('[AuditManager] 初期化完了');
@@ -195,6 +204,17 @@ class AuditManager {
       // 同期待ちのログに追加
       if (this.autoSync) {
         this.pendingLogs.push(logEntry);
+        console.log('[AuditManager] pendingLogsに追加:', {
+          logId: logEntry.id,
+          operation: logEntry.operation,
+          pendingLogsLength: this.pendingLogs.length
+        });
+      } else {
+        console.log('[AuditManager] autoSyncが無効のため、pendingLogsに追加しません:', {
+          autoSync: this.autoSync,
+          logId: logEntry.id,
+          operation: logEntry.operation
+        });
       }
       
       // デバッグログ
@@ -541,6 +561,10 @@ class AuditManager {
     }
     
     this.syncTimer = setInterval(() => {
+      console.log('[AuditManager] 同期タイマー実行:', {
+        pendingLogsLength: this.pendingLogs.length,
+        autoSync: this.autoSync
+      });
       this.syncToSpreadsheet();
     }, this.syncInterval);
   }
@@ -555,7 +579,18 @@ class AuditManager {
 
   // スプレッドシートに同期
   async syncToSpreadsheet() {
+    console.log('[AuditManager] syncToSpreadsheet called:', {
+      autoSync: this.autoSync,
+      pendingLogsLength: this.pendingLogs.length,
+      pendingLogs: this.pendingLogs
+    });
+    
     if (!this.autoSync || this.pendingLogs.length === 0) {
+      console.log('[AuditManager] syncToSpreadsheet skipped:', {
+        reason: !this.autoSync ? 'autoSync disabled' : 'no pending logs',
+        autoSync: this.autoSync,
+        pendingLogsLength: this.pendingLogs.length
+      });
       return;
     }
 
@@ -702,10 +737,18 @@ class AuditManager {
         console.log(`[AuditManager] 最終同期ログ数: ${finalValidLogs.length}件 (元: ${validLogs.length}件)`);
         
         // シンプルで確実なパラメータ送信方式
-        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [
+        console.log('[AuditManager] syncAuditLogsToSpreadsheet呼び出し開始:', {
+          auditLogSpreadsheetId,
+          logsCount: finalValidLogs.length,
+          firstLogId: finalValidLogs[0]?.id
+        });
+        
+        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', 
           auditLogSpreadsheetId,
           finalValidLogs
-        ]);
+        );
+        
+        console.log('[AuditManager] syncAuditLogsToSpreadsheet呼び出し結果:', result);
         
         // レスポンスの詳細な検証
         if (result && typeof result === 'object' && result.success === true) {
@@ -825,7 +868,7 @@ class AuditManager {
       }
 
       try {
-        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', [auditLogSpreadsheetId, logsToSync]);
+        const result = await this.callGASAPI('syncAuditLogsToSpreadsheet', auditLogSpreadsheetId, logsToSync);
         
         if (result && result.success) {
           this.lastSyncTime = Date.now();
@@ -869,7 +912,7 @@ class AuditManager {
   // スプレッドシートからログを取得
   async getLogsFromSpreadsheet(spreadsheetId, limit = 100, offset = 0) {
     try {
-      const result = await this.callGASAPI('getAuditLogsFromSpreadsheet', [spreadsheetId, limit, offset]);
+      const result = await this.callGASAPI('getAuditLogsFromSpreadsheet', spreadsheetId, limit, offset);
       return result;
     } catch (error) {
       console.warn(`[AuditManager] ログ取得エラー: ${error.message}`);
@@ -881,7 +924,7 @@ class AuditManager {
   // スプレッドシートから統計を取得
   async getStatsFromSpreadsheet(spreadsheetId) {
     try {
-      const result = await this.callGASAPI('getAuditLogStatsFromSpreadsheet', [spreadsheetId]);
+      const result = await this.callGASAPI('getAuditLogStatsFromSpreadsheet', spreadsheetId);
       return result;
     } catch (error) {
       console.warn(`[AuditManager] 統計取得エラー: ${error.message}`);
@@ -891,7 +934,7 @@ class AuditManager {
   }
 
   // GAS APIを呼び出す（改良版）
-  async callGASAPI(functionName, params = []) {
+  async callGASAPI(functionName, ...params) {
     let script = null;
     let timeoutId = null;
     
@@ -927,12 +970,32 @@ class AuditManager {
       });
       
       console.log('[AuditManager] エンコードされたパラメータ:', encodedParams);
-      const queryString = `func=${functionName}&params=${encodedParams.join('&params=')}&callback=${callback}`;
+      
+      // パラメータを個別に送信する方式に変更
+      let queryString = `func=${functionName}&callback=${callback}`;
+      encodedParams.forEach((encodedParam, index) => {
+        queryString += `&params=${encodedParam}`;
+      });
       console.log('[AuditManager] クエリ文字列:', queryString);
+      console.log('[AuditManager] 送信先URL:', `${apiUrl}?${queryString}`);
+      console.log('[AuditManager] リクエスト送信開始:', {
+        functionName,
+        apiUrl,
+        queryString,
+        callback,
+        timestamp: new Date().toISOString()
+      });
       
       return new Promise((resolve, reject) => {
         // コールバック関数を設定
         window[callback] = (response) => {
+          console.log('[AuditManager] コールバック受信:', {
+            functionName,
+            response,
+            responseType: typeof response,
+            responseSuccess: response?.success
+          });
+          
           // クリーンアップ
           this.cleanupAPICall(callback, script, timeoutId);
           
@@ -949,13 +1012,36 @@ class AuditManager {
         script = document.createElement('script');
         script.src = `${apiUrl}?${queryString}`;
         script.onerror = (error) => {
-          console.error('[AuditManager] スクリプト読み込みエラー:', error);
+          console.error('[AuditManager] スクリプト読み込みエラー:', {
+            functionName,
+            error,
+            url: script.src,
+            errorType: error.type,
+            errorTarget: error.target,
+            errorMessage: error.message,
+            errorStack: error.stack
+          });
           this.cleanupAPICall(callback, script, timeoutId);
           resolve({ success: false, error: `API呼び出しに失敗しました: ${functionName}` });
         };
         
         // スクリプトを追加
+        console.log('[AuditManager] スクリプト要素を追加中:', {
+          functionName,
+          url: script.src,
+          scriptElement: script
+        });
+        
         document.head.appendChild(script);
+        console.log('[AuditManager] スクリプト要素を追加完了');
+        
+        // リクエスト送信の確認
+        console.log('[AuditManager] リクエスト送信確認:', {
+          functionName,
+          url: script.src,
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent
+        });
         
         // タイムアウト設定
         timeoutId = setTimeout(() => {
@@ -1164,7 +1250,7 @@ class AuditManager {
   // GAS APIのテスト関数
   async testGASAPI() {
     try {
-      const result = await this.callGASAPI('testApi', []);
+      const result = await this.callGASAPI('testApi');
       console.log('[AuditManager] GAS APIテスト結果:', result);
       return result;
     } catch (error) {
